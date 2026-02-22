@@ -88,7 +88,9 @@ export const RosterManager: React.FC = () => {
   const [editingRowPos, setEditingRowPos] = useState<{sIdx: number, rIdx: number} | null>(null);
   const [editingLegendId, setEditingLegendId] = useState<string | null>(null); // Shift ID para edição de legenda
 
-  const isAdmin = db.getCurrentUser().role === 'ADMIN';
+  const user = db.getCurrentUser();
+  const isAdmin = user.role === 'ADMIN';
+  const isOperator = isAdmin || user.role === 'USER';
 
   useEffect(() => { loadData(); }, []);
   const loadData = () => {
@@ -544,6 +546,16 @@ export const RosterManager: React.FC = () => {
     setEditingRowPos(null);
   };
 
+  const toggleRowPhone = (sIdx: number, rIdx: number) => {
+    if (!selectedRoster || !selectedRoster.sections) return;
+    const newSections = selectedRoster.sections.map((sec, idx) => {
+      if (idx !== sIdx) return sec;
+      const newRows = sec.rows.map((row, i) => i === rIdx ? { ...row, hidePhone: !row.hidePhone } : row);
+      return { ...sec, rows: newRows };
+    });
+    updateRoster({ ...selectedRoster, sections: newSections });
+  };
+
   const updateShift = (date: string, period: string, soldierId: string) => {
     if (!selectedRoster) return;
     const newShifts = [...selectedRoster.shifts];
@@ -699,9 +711,9 @@ export const RosterManager: React.FC = () => {
     if (h.includes('SIT') || h.includes('STATUS')) return <span className="text-[9px] font-bold">{s.status}</span>;
     if (h === 'NR' || h === 'NR.' || h === 'OBS') {
          const val = item.shift.customData?.[colIndex] !== undefined ? item.shift.customData[colIndex] : (item.shift.note || '');
-         return <input readOnly={!isAdmin} className={`w-full h-full text-center outline-none bg-transparent uppercase p-1 ${isAdmin ? '' : 'pointer-events-none'}`} value={val} onChange={e => updateCustomCell(s.id, colIndex, e.target.value)} />;
+         return <input readOnly={!isOperator} className={`w-full h-full text-center outline-none bg-transparent uppercase p-1 ${isOperator ? '' : 'pointer-events-none'}`} value={val} onChange={e => updateCustomCell(s.id, colIndex, e.target.value)} />;
     }
-    return <input readOnly={!isAdmin} className={`w-full h-full text-center outline-none bg-transparent uppercase p-1 focus:bg-yellow-50 ${isAdmin ? '' : 'pointer-events-none'}`} value={item.shift.customData?.[colIndex.toString()] || ''} onChange={e => updateCustomCell(s.id, colIndex, e.target.value)} placeholder={isAdmin ? "..." : ""} />;
+    return <input readOnly={!isOperator} className={`w-full h-full text-center outline-none bg-transparent uppercase p-1 focus:bg-yellow-50 ${isOperator ? '' : 'pointer-events-none'}`} value={item.shift.customData?.[colIndex.toString()] || ''} onChange={e => updateCustomCell(s.id, colIndex, e.target.value)} placeholder={isOperator ? "..." : ""} />;
   };
 
   const updateRoster = (updated: Roster) => {
@@ -836,7 +848,7 @@ export const RosterManager: React.FC = () => {
             <option value="">{selectedRoster ? '(FECHAR ESCALA ATUAL)' : 'SELECIONE UMA ESCALA SALVA...'}</option>
             {filteredRostersByTab.map(r => <option key={r.id} value={r.id}>{r.title} ({new Date(r.startDate).toLocaleDateString()})</option>)}
           </select>
-          {isAdmin && (
+          {isOperator && (
             <button onClick={() => setIsCreating(true)} className="flex items-center space-x-1.5 bg-pm-700 text-white px-4 py-2 rounded-lg font-black text-[10px] hover:bg-pm-950 transition-all shadow-md">
               <Plus size={14} /> <span>NOVA ESCALA</span>
             </button>
@@ -921,13 +933,13 @@ export const RosterManager: React.FC = () => {
 
                  <div className="text-center mb-6 relative group">
                     <input 
-                      readOnly={!isAdmin}
-                      className={`w-full text-center text-[18pt] font-bold uppercase leading-tight outline-none border-b-2 border-transparent bg-transparent text-black ${isAdmin ? 'hover:border-pm-300 focus:border-pm-500 placeholder-gray-300' : 'pointer-events-none'}`}
+                      readOnly={!isOperator}
+                      className={`w-full text-center text-[18pt] font-bold uppercase leading-tight outline-none border-b-2 border-transparent bg-transparent text-black ${isOperator ? 'hover:border-pm-300 focus:border-pm-500 placeholder-gray-300' : 'pointer-events-none'}`}
                       value={selectedRoster.title}
                       onChange={e => updateRoster({...selectedRoster, title: e.target.value.toUpperCase()})}
-                      placeholder={isAdmin ? "CLIQUE PARA EDITAR O TÍTULO" : ""}
+                      placeholder={isOperator ? "CLIQUE PARA EDITAR O TÍTULO" : ""}
                     />
-                    <Edit3 size={16} className={`absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 opacity-0 group-hover:opacity-100 ${!isAdmin ? 'hidden' : ''}`}/>
+                    <Edit3 size={16} className={`absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 opacity-0 group-hover:opacity-100 ${!isOperator ? 'hidden' : ''}`}/>
                  </div>
 
                  <div className="mb-6 text-[12pt] text-left relative group text-black">
@@ -959,12 +971,12 @@ export const RosterManager: React.FC = () => {
                         {HEADERS.map((header, idx) => (
                            <th key={idx} className="border border-black p-0 text-center font-bold relative group">
                               <input 
-                                readOnly={!isAdmin}
+                                readOnly={!isOperator}
                                 value={header} 
                                 onChange={e => updateCustomHeader(idx, e.target.value)} 
-                                className={`w-full bg-transparent text-center font-bold outline-none uppercase p-1 min-w-[30px] text-black ${isAdmin ? '' : 'pointer-events-none'}`}
+                                className={`w-full bg-transparent text-center font-bold outline-none uppercase p-1 min-w-[30px] text-black ${isOperator ? '' : 'pointer-events-none'}`}
                               />
-                              {isAdmin && HEADERS.length > 1 && (
+                              {isOperator && HEADERS.length > 1 && (
                                 <button 
                                   onClick={() => handleRemoveColumn(idx)}
                                   className="absolute -top-3 right-0 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity bg-white rounded-full p-0.5 shadow-sm"
@@ -1026,7 +1038,7 @@ export const RosterManager: React.FC = () => {
         ) : (selectedRoster.type !== 'cat_extra' && selectedRoster.type !== 'cat_amb' && selectedRoster.type !== 'cat_psi') ? (
           <div className="flex-1 overflow-auto bg-gray-200/80 dark:bg-slate-900 flex justify-center p-8 rounded-lg border-inner shadow-inner">
              {/* ESCALA GENÉRICA (A4 PAISAGEM) - Mantém BG White e Text Black */}
-             <div className="w-[297mm] min-h-[210mm] bg-white text-black shadow-2xl relative flex flex-col mx-auto" style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+             <div className="w-[297mm] min-h-[210mm] bg-white text-black shadow-2xl relative flex flex-col mx-auto pb-10" style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif' }}>
                 <header className="text-center mb-2 flex flex-col justify-center border-b border-black/20 pb-1 relative h-12">
                    {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-12 w-12 object-contain" alt="Logo Esq" />}
                    <div className="mx-16">
@@ -1048,7 +1060,7 @@ export const RosterManager: React.FC = () => {
                    {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-12 w-12 object-contain" alt="Logo Dir" />}
                 </header>
 
-                <div className="flex-1 border border-black overflow-hidden relative">
+                <div className="flex-1 border border-black relative">
                   {isAdmin && (
                     <div className="bg-gray-100 border-b border-black p-1 flex justify-end items-center space-x-4 no-print px-3">
                        {(selectedRoster.type !== 'cat_extra') && (
@@ -1103,13 +1115,20 @@ export const RosterManager: React.FC = () => {
                                  )}
                                  
                                  {isAdmin && (
-                                   <div className="absolute left-0 top-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                   <div className="absolute left-0 top-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col space-y-1">
                                       <button 
                                         onClick={(e) => { e.stopPropagation(); deleteRow(0, rIdx); }} 
                                         className="bg-red-500 text-white rounded-full p-1 shadow hover:bg-red-600"
                                         title="Excluir este Bloco/Setor"
                                       >
                                         <Trash2 size={10}/>
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); toggleRowPhone(0, rIdx); }} 
+                                        className={`rounded-full p-1 shadow transition-colors ${row.hidePhone ? 'bg-gray-400 text-white' : 'bg-blue-500 text-white'}`}
+                                        title={row.hidePhone ? "Mostrar Telefone" : "Ocultar Telefone"}
+                                      >
+                                        {row.hidePhone ? <Icons.PhoneOff size={10}/> : <Icons.Phone size={10}/>}
                                       </button>
                                    </div>
                                  )}
@@ -1130,6 +1149,11 @@ export const RosterManager: React.FC = () => {
                                              return sdr ? (
                                                 <div key={i} className="text-[7pt] font-bold uppercase leading-tight relative group/item text-black">
                                                    {getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} 
+                                                   {!row.hidePhone && sdr.phone && (
+                                                     <div className="text-[6pt] text-gray-600 font-normal lowercase">
+                                                       {sdr.phone}
+                                                     </div>
+                                                   )}
                                                    
                                                    {isAdmin && editingLegendId === shiftId ? (
                                                      <input 
@@ -1204,7 +1228,7 @@ export const RosterManager: React.FC = () => {
                       <div className="w-1/2 pl-2 relative">
                            <div className="flex justify-between items-center mb-1">
                               <label className="text-[7pt] font-bold text-gray-500 uppercase">ALTERAÇÕES (FÉRIAS, LTS, ETC):</label>
-                              {isAdmin && (
+                              {isOperator && (
                                   <button 
                                     onClick={handleAutoSituation}
                                     className="text-[9px] bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-0.5 rounded flex items-center gap-1 font-bold uppercase"
@@ -1237,7 +1261,7 @@ export const RosterManager: React.FC = () => {
         ) : (
           <div className="flex-1 overflow-auto bg-gray-200/80 dark:bg-slate-900 flex justify-center p-8 rounded-lg border-inner shadow-inner">
              {/* LAYOUT OPERACIONAL (AMB/PSI) - Mantém BG White e Text Black */}
-             <div className="w-[210mm] min-h-[297mm] bg-white text-black shadow-2xl relative flex flex-col mx-auto" style={{ padding: '8mm', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+             <div className="w-[210mm] min-h-[297mm] bg-white text-black shadow-2xl relative flex flex-col mx-auto pb-10" style={{ padding: '8mm', fontFamily: 'Arial, Helvetica, sans-serif' }}>
                 <header className="text-center mb-4 relative">
                    {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-16 w-16 object-contain" alt="Logo Esq" />}
                    <div className="mx-20">
@@ -1271,7 +1295,7 @@ export const RosterManager: React.FC = () => {
                     />
                 </div>
 
-                <div className="flex-1 border border-black overflow-hidden relative">
+                <div className="flex-1 border border-black relative">
                   {isAdmin && (
                     <div className="bg-gray-100 border-b border-black p-1 flex justify-end space-x-2 no-print">
                        {(selectedRoster.type === 'cat_amb' || selectedRoster.type === 'cat_psi') && (
