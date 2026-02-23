@@ -65,8 +65,10 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   // Todo o resto (Adm, Ast) usa layout Grade Paisagem
   const isGrid = !isExtra && !isAmbOrPsi;
   
-  // PADRÃO AGORA É PAISAGEM (LANDSCAPE)
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
+  // PADRÃO AGORA É RETRATO PARA TODAS AS ESCALAS
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+
+  const cleanHeaderTitle = (roster.headerTitle || settings.orgName || '').replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '');
 
   // Ajuste automático ao abrir
   useEffect(() => {
@@ -85,9 +87,9 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     setOrientation(prev => prev === 'portrait' ? 'landscape' : 'portrait');
   };
 
-  // Processamento de dados para Escala Extra (Lista Agrupada por Quadro)
-  const extraRosterDataGrouped = useMemo(() => {
-    if (!isExtra) return {};
+  // Processamento de dados para Escala Extra (Lista Plana, sem agrupar por Quadro)
+  const extraRosterData = useMemo(() => {
+    if (!isExtra) return [];
     
     const validShifts = roster.shifts.filter(s => s.soldierId);
     const list = validShifts.map(shift => {
@@ -95,23 +97,14 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
       return { shift, soldier };
     }).filter(item => item.soldier) as { shift: any, soldier: typeof allSoldiers[0] }[];
 
-    const grouped: Record<string, typeof list> = {};
-    list.forEach(item => {
-      const cadre = item.soldier.cadre || 'OUTROS';
-      if (!grouped[cadre]) grouped[cadre] = [];
-      grouped[cadre].push(item);
+    list.sort((a, b) => {
+      const weightA = getRankWeight(a.soldier.rank);
+      const weightB = getRankWeight(b.soldier.rank);
+      if (weightA !== weightB) return weightA - weightB;
+      return a.soldier.name.localeCompare(b.soldier.name);
     });
 
-    Object.keys(grouped).forEach(cadre => {
-      grouped[cadre].sort((a, b) => {
-        const weightA = getRankWeight(a.soldier.rank);
-        const weightB = getRankWeight(b.soldier.rank);
-        if (weightA !== weightB) return weightA - weightB;
-        return a.soldier.name.localeCompare(b.soldier.name);
-      });
-    });
-
-    return grouped;
+    return list;
   }, [roster, allSoldiers, isExtra]);
 
   const handleDownloadPDF = async () => {
@@ -214,7 +207,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
         @media print {
           @page { 
             size: ${orientation} A4; 
-            margin: 5mm; 
+            margin: 0; 
           }
           body { 
             -webkit-print-color-adjust: exact !important; 
@@ -223,11 +216,13 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
             color: black !important;
             margin: 0; 
             padding: 0;
+            width: ${orientation === 'landscape' ? '297mm' : '210mm'};
+            height: ${orientation === 'landscape' ? '210mm' : '297mm'};
+            overflow: hidden;
           }
           #roster-pdf-content { 
-            width: 100% !important; 
-            height: 100% !important; 
-            max-height: 100vh !important;
+            width: ${orientation === 'landscape' ? '297mm' : '210mm'} !important; 
+            height: ${orientation === 'landscape' ? '210mm' : '297mm'} !important; 
             box-shadow: none !important; 
             margin: 0 !important;
             transform: none !important;
@@ -279,7 +274,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
           className="transition-transform duration-200 ease-out origin-top will-change-transform bg-white shadow-2xl"
         >
           {isExtra ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '15mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '15mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                 <div className="h-full flex flex-col overflow-hidden">
                     <header className="flex justify-between items-start mb-4 h-16 relative w-full flex-shrink-0">
                         {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="h-16 w-auto object-contain" alt="PMCE" />}
@@ -302,27 +297,18 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                               </tr>
                             </thead>
                             <tbody>
-                              {(Object.entries(extraRosterDataGrouped) as [string, any[]][]).map(([cadre, items]) => (
-                                <React.Fragment key={cadre}>
-                                  <tr className="bg-gray-100">
-                                    <td colSpan={HEADERS.length} className="border border-black p-1 font-black text-center uppercase text-[10pt]">
-                                      QUADRO: {cadre}
+                              {extraRosterData.map((item, index) => (
+                                <tr key={item.soldier.id}>
+                                  {HEADERS.map((header, colIndex) => (
+                                    <td key={colIndex} className="border border-black p-0.5 text-center">
+                                      {header.includes('ORD') ? (
+                                        <span className="font-bold">{(index + 1).toString().padStart(2, '0')}</span>
+                                      ) : (
+                                        renderExtraCell(header, item, colIndex)
+                                      )}
                                     </td>
-                                  </tr>
-                                  {items.map((item, index) => (
-                                    <tr key={item.soldier.id}>
-                                      {HEADERS.map((header, colIndex) => (
-                                        <td key={colIndex} className="border border-black p-0.5 text-center">
-                                          {header.includes('ORD') ? (
-                                            <span className="font-bold">{(index + 1).toString().padStart(2, '0')}</span>
-                                          ) : (
-                                            renderExtraCell(header, item, colIndex)
-                                          )}
-                                        </td>
-                                      ))}
-                                    </tr>
                                   ))}
-                                </React.Fragment>
+                                </tr>
                               ))}
                             </tbody>
                         </table>
@@ -337,14 +323,14 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                 </div>
             </div>
           ) : isGrid ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                <div className="h-full flex flex-col overflow-hidden">
                   <header className="text-center mb-2 flex flex-col justify-center border-b border-black/20 pb-1 relative h-12 flex-shrink-0">
                      {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-12 w-12 object-contain" alt="Logo Esq" />}
                      <div className="mx-16">
                        {/* TÍTULO DA ORGANIZAÇÃO (AGORA PERSONALIZÁVEL) */}
                        <h1 className="text-[10pt] font-bold uppercase tracking-wide text-gray-800">
-                         {roster.headerTitle || settings.orgName}
+                         {cleanHeaderTitle}
                        </h1>
                        <h2 className="text-[12pt] font-black uppercase tracking-tight leading-tight">{roster.title}</h2>
                        <div className="text-[8pt] font-bold uppercase">DO DIA {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
@@ -419,14 +405,14 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                </div>
             </div>
           ) : (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', maxHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                 <div className="h-full flex flex-col overflow-hidden">
                     <header className="text-center mb-1 relative h-12 flex items-center justify-center flex-shrink-0">
                        {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-12 w-12 object-contain" alt="Logo Esq" />}
                        <div className="mx-14 w-full">
                          {/* TÍTULO EDITÁVEL DA ORGANIZAÇÃO (AMBULÂNCIA/PSICOLOGIA) */}
                          <h1 className="text-[8pt] font-bold uppercase tracking-tight leading-none mb-1">
-                            {roster.headerTitle || settings.orgName}
+                            {cleanHeaderTitle}
                          </h1>
                          <h2 className="text-[10pt] font-black uppercase leading-none mb-1">{roster.title}</h2>
                          <div className="text-[7pt] font-bold uppercase text-black leading-tight">

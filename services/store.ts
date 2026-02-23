@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 const INITIAL_CATEGORIES: RosterCategory[] = [
   { id: 'cat_amb', name: 'Ambulância', icon: 'Truck' },
   { id: 'cat_psi', name: 'Psicologia', icon: 'Brain' },
+  { id: 'cat_odo', name: 'Odontologia', icon: 'Stethoscope' },
   { id: 'cat_ast', name: 'Assistencial', icon: 'HeartPulse' },
   { id: 'cat_adm', name: 'Administrativo', icon: 'Briefcase' },
   { id: 'cat_extra', name: 'Escala Extra / Voluntária', icon: 'Star' }
@@ -121,7 +122,7 @@ class StoreService {
     }
     
     // Garantias de compatibilidade e valores default para evitar uncontrolled inputs
-    return {
+    const result = {
       ...defaults,
       ...stored,
       // Ensure specific fields are never undefined
@@ -141,6 +142,14 @@ class StoreService {
       rosterCategories: stored.rosterCategories || defaults.rosterCategories,
       teamMappings: stored.teamMappings || defaults.teamMappings
     };
+    
+    // Ensure cat_odo exists in rosterCategories
+    if (!result.rosterCategories.find(c => c.id === 'cat_odo')) {
+      result.rosterCategories.splice(2, 0, { id: 'cat_odo', name: 'Odontologia', icon: 'Stethoscope' });
+      this.setLocal('app_settings', result);
+    }
+    
+    return result;
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {

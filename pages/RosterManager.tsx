@@ -170,9 +170,9 @@ export const RosterManager: React.FC = () => {
     return active.filter(s => s.name.toLowerCase().includes(q) || s.matricula?.includes(q));
   }, [soldiers, searchQuery]);
 
-  // Lista Ordenada para Escala Extra (Agrupada por Quadro)
-  const extraRosterDataGrouped = useMemo(() => {
-    if (!selectedRoster || selectedRoster.type !== 'cat_extra') return {};
+  // Lista Ordenada para Escala Extra (Plana, sem agrupar por Quadro)
+  const extraRosterData = useMemo(() => {
+    if (!selectedRoster || selectedRoster.type !== 'cat_extra') return [];
     
     const validShifts = selectedRoster.shifts.filter(s => s.soldierId);
     
@@ -181,23 +181,14 @@ export const RosterManager: React.FC = () => {
       return { shift, soldier };
     }).filter(item => item.soldier) as { shift: any, soldier: Soldier }[];
 
-    const grouped: Record<string, typeof list> = {};
-    list.forEach(item => {
-      const cadre = item.soldier.cadre || 'OUTROS';
-      if (!grouped[cadre]) grouped[cadre] = [];
-      grouped[cadre].push(item);
+    list.sort((a, b) => {
+      const weightA = getRankWeight(a.soldier.rank);
+      const weightB = getRankWeight(b.soldier.rank);
+      if (weightA !== weightB) return weightA - weightB;
+      return a.soldier.name.localeCompare(b.soldier.name);
     });
 
-    Object.keys(grouped).forEach(cadre => {
-      grouped[cadre].sort((a, b) => {
-        const weightA = getRankWeight(a.soldier.rank);
-        const weightB = getRankWeight(b.soldier.rank);
-        if (weightA !== weightB) return weightA - weightB;
-        return a.soldier.name.localeCompare(b.soldier.name);
-      });
-    });
-
-    return grouped;
+    return list;
   }, [selectedRoster, soldiers]);
 
   // Função para calcular qual equipe está de serviço no dia (Reutilizada do Dashboard para consistência)
@@ -400,6 +391,14 @@ export const RosterManager: React.FC = () => {
         ]}
       ];
     }
+    if (catId === 'cat_odo') {
+      return [
+        { title: "ATENDIMENTO ODONTOLÓGICO", rows: [
+          { id: 'ODO_CLI', label: 'CLÍNICO' },
+          { id: 'ODO_SOBRE', label: 'SOBREAVISO' }
+        ]}
+      ];
+    }
     if (catId === 'cat_ast') {
       return [
         { title: "SERVIÇO SOCIAL", rows: [
@@ -425,6 +424,7 @@ export const RosterManager: React.FC = () => {
     const isExtra = activeTab === 'cat_extra';
     const isAdm = activeTab === 'cat_adm';
     const isPsi = activeTab === 'cat_psi';
+    const isOdo = activeTab === 'cat_odo';
     const isAmb = activeTab === 'cat_amb';
     const isAst = activeTab === 'cat_ast';
     
@@ -435,6 +435,7 @@ export const RosterManager: React.FC = () => {
     if (isExtra) defaultTitle = 'CAMINHADA COM MARIA 2025';
     if (isAdm) defaultTitle = 'ESCALA DE SERVIÇO ADMINISTRATIVO';
     if (isPsi) defaultTitle = 'ESCALA DE PSICOLOGIA';
+    if (isOdo) defaultTitle = 'ESCALA DE ODONTOLOGIA';
     if (isAst) defaultTitle = 'ESCALA DE SERVIÇO SOCIAL';
 
     const startD = new Date(newRosterMeta.startDate);
@@ -442,6 +443,7 @@ export const RosterManager: React.FC = () => {
     let subTitle = '';
     if (isAmb) subTitle = 'AMBULÂNCIAS A SEREM UTILIZADAS...';
     else if (isPsi) subTitle = 'PSICOLOGIA - ESCALA DE SERVIÇO';
+    else if (isOdo) subTitle = 'ODONTOLOGIA - ESCALA DE SERVIÇO';
     else if (!isAdm && !isExtra) subTitle = `${catName} - ESCALA DE SERVIÇO`;
 
     let sections = isExtra ? [] : getDefaultStructure(activeTab);
@@ -1000,37 +1002,28 @@ export const RosterManager: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {(Object.entries(extraRosterDataGrouped) as [string, any[]][]).map(([cadre, items]) => (
-                        <React.Fragment key={cadre}>
-                          <tr className="bg-gray-100">
-                            <td colSpan={HEADERS.length + (isAdmin ? 1 : 0)} className="border border-black p-1 font-black text-center uppercase text-[10pt]">
-                              QUADRO: {cadre}
-                            </td>
-                          </tr>
-                          {items.map((item, index) => (
-                            <tr key={item.soldier.id} className="group hover:bg-gray-50">
-                              {HEADERS.map((header, colIndex) => (
-                                <td key={colIndex} className="border border-black p-0.5 text-center align-middle">
-                                  {header.includes('ORD') ? (
-                                    <span className="font-bold">{(index + 1).toString().padStart(2, '0')}</span>
-                                  ) : (
-                                    renderDynamicCell(header, item, colIndex)
-                                  )}
-                                </td>
-                              ))}
-                              
-                              {isAdmin && (
-                                <td className="p-0 border-none align-middle text-center bg-white">
-                                  <button onClick={() => handleRemoveSoldierFromExtra(item.soldier.id)} className="text-red-300 hover:text-red-600 p-1 opacity-0 group-hover:opacity-100 transition-all">
-                                    <MinusCircle size={16}/>
-                                  </button>
-                                </td>
+                      {extraRosterData.map((item, index) => (
+                        <tr key={item.soldier.id} className="group hover:bg-gray-50">
+                          {HEADERS.map((header, colIndex) => (
+                            <td key={colIndex} className="border border-black p-0.5 text-center align-middle">
+                              {header.includes('ORD') ? (
+                                <span className="font-bold">{(index + 1).toString().padStart(2, '0')}</span>
+                              ) : (
+                                renderDynamicCell(header, item, colIndex)
                               )}
-                            </tr>
+                            </td>
                           ))}
-                        </React.Fragment>
+                          
+                          {isAdmin && (
+                            <td className="p-0 border-none align-middle text-center bg-white">
+                              <button onClick={() => handleRemoveSoldierFromExtra(item.soldier.id)} className="text-red-300 hover:text-red-600 p-1 opacity-0 group-hover:opacity-100 transition-all">
+                                <MinusCircle size={16}/>
+                              </button>
+                            </td>
+                          )}
+                        </tr>
                       ))}
-                      {Object.keys(extraRosterDataGrouped).length === 0 && (<tr><td colSpan={HEADERS.length + 1} className="border border-black p-8 text-center text-gray-300 italic">Nenhum militar adicionado à lista.</td></tr>)}
+                      {extraRosterData.length === 0 && (<tr><td colSpan={HEADERS.length + 1} className="border border-black p-8 text-center text-gray-300 italic">Nenhum militar adicionado à lista.</td></tr>)}
                     </tbody>
                   </table>
 
@@ -1063,7 +1056,7 @@ export const RosterManager: React.FC = () => {
                      <input
                        readOnly={!isAdmin}
                        className={`w-full text-center text-[10pt] font-bold uppercase tracking-wide text-gray-800 outline-none bg-transparent ${isAdmin ? 'hover:bg-gray-50 focus:bg-yellow-50 placeholder-gray-400' : 'pointer-events-none'}`}
-                       value={selectedRoster.headerTitle !== undefined ? selectedRoster.headerTitle : settings.orgName}
+                       value={(selectedRoster.headerTitle !== undefined ? selectedRoster.headerTitle : settings.orgName).replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '')}
                        onChange={e => updateRoster({...selectedRoster, headerTitle: e.target.value.toUpperCase()})}
                        placeholder={isAdmin ? "CLIQUE PARA EDITAR O TÍTULO DA ORGANIZAÇÃO" : ""}
                      />
@@ -1312,7 +1305,7 @@ export const RosterManager: React.FC = () => {
                      <input
                        readOnly={!isAdmin}
                        className={`w-full text-center text-[10pt] font-bold uppercase outline-none bg-transparent text-gray-800 ${isAdmin ? 'hover:bg-gray-50 focus:bg-yellow-50 placeholder-gray-400' : 'pointer-events-none'}`}
-                       value={selectedRoster.headerTitle !== undefined ? selectedRoster.headerTitle : settings.orgName}
+                       value={(selectedRoster.headerTitle !== undefined ? selectedRoster.headerTitle : settings.orgName).replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '')}
                        onChange={e => updateRoster({...selectedRoster, headerTitle: e.target.value.toUpperCase()})}
                        placeholder={isAdmin ? "CLIQUE PARA EDITAR O TÍTULO DA ORGANIZAÇÃO" : ""}
                      />
@@ -1342,7 +1335,7 @@ export const RosterManager: React.FC = () => {
                 <div className="flex-1 border border-black overflow-hidden relative">
                   {isAdmin && (
                     <div className="bg-gray-100 border-b border-black p-1 flex justify-end space-x-2 no-print">
-                       {(selectedRoster.type === 'cat_amb' || selectedRoster.type === 'cat_psi') && (
+                       {(selectedRoster.type === 'cat_amb' || selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo') && (
                            <button 
                              onClick={() => setIsAutoModalOpen(true)}
                              className="flex items-center space-x-1 text-[8pt] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded hover:bg-purple-200 uppercase mr-auto border border-purple-200 shadow-sm"
@@ -1351,7 +1344,7 @@ export const RosterManager: React.FC = () => {
                            </button>
                        )}
 
-                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_ast') && (
+                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo' || selectedRoster.type === 'cat_ast') && (
                          <div className="flex items-center space-x-4 mr-4">
                            <label className="flex items-center space-x-2 cursor-pointer group">
                               <div 
@@ -1375,7 +1368,7 @@ export const RosterManager: React.FC = () => {
                          </div>
                        )}
 
-                       {selectedRoster.type === 'cat_psi' && (
+                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo') && (
                          <label className="flex items-center space-x-2 cursor-pointer group mr-4">
                             <div 
                               onClick={() => updateRoster({...selectedRoster, hideWeekends: !selectedRoster.hideWeekends})}
@@ -1393,7 +1386,7 @@ export const RosterManager: React.FC = () => {
                     </div>
                   )}
 
-                  <table className="w-full h-full table-fixed border-collapse text-black">
+                  <table className="w-full h-full table-fixed border-collapse text-black" style={{ tableLayout: 'fixed' }}>
                      <thead>
                         <tr className="h-8">
                           {dates.map((d, i) => {
@@ -1418,7 +1411,7 @@ export const RosterManager: React.FC = () => {
                           })}
                         </tr>
                      </thead>
-                     <tbody>
+                     <tbody style={{ height: '100%', overflow: 'hidden' }}>
                        {(selectedRoster.sections || []).map((sec, sIdx) => (
                           <React.Fragment key={sIdx}>
                              <tr className="h-4 bg-[#cbd5b0]">
@@ -1446,7 +1439,7 @@ export const RosterManager: React.FC = () => {
                              </tr>
 
                              {sec.rows.map((row, rIdx) => (
-                                <tr key={row.id}>
+                                <tr key={row.id} style={{ height: `${100 / (selectedRoster.sections?.reduce((acc, s) => acc + s.rows.length, 0) || 1)}%` }}>
                                    {dates.map((d, dIdx) => {
                                       const dStr = d.toISOString().split('T')[0];
                                       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
@@ -1464,7 +1457,8 @@ export const RosterManager: React.FC = () => {
                                         <td 
                                           key={`${row.id}-${dStr}`} 
                                           rowSpan={isMerged ? sec.rows.length : 1}
-                                          className={`border border-black relative group p-0.5 ${isAdmin ? 'hover:bg-yellow-50 cursor-pointer' : ''} align-middle h-[45px]`}
+                                          className={`border border-black relative group p-0.5 ${isAdmin ? 'hover:bg-yellow-50 cursor-pointer' : ''} align-middle overflow-hidden`}
+                                          style={{ height: '100%' }}
                                           onClick={() => { if(isAdmin && !sdr) { setActiveSearchCell({date: dStr, period: cellPeriodId}); setIsSearchOpen(true); } }}
                                         >
                                            <div className="flex flex-col items-center justify-center w-full h-full overflow-hidden leading-tight">
