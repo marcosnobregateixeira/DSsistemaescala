@@ -207,20 +207,19 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
             size: landscape A4; 
             margin: 0; 
           }
-          body { 
+          html, body { 
+            width: 297mm;
+            height: 210mm;
+            margin: 0 !important; 
+            padding: 0 !important;
+            overflow: hidden !important;
             -webkit-print-color-adjust: exact !important; 
             print-color-adjust: exact !important;
             background: white !important; 
-            color: black !important;
-            margin: 0; 
-            padding: 0;
-            width: 297mm;
-            height: 210mm;
-            overflow: hidden;
           }
           #roster-pdf-content { 
-            width: 297mm !important; 
-            height: 210mm !important; 
+            width: 100% !important; 
+            height: 100% !important; 
             box-shadow: none !important; 
             margin: 0 !important;
             padding: 5mm !important;
@@ -265,7 +264,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
           className="transition-transform duration-200 ease-out origin-top will-change-transform bg-white shadow-2xl"
         >
           {isExtra ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '15mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '5mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                 <div className="h-full flex flex-col overflow-hidden">
                     <header className="flex justify-between items-start mb-4 h-16 relative w-full flex-shrink-0">
                         {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="h-16 w-auto object-contain" alt="PMCE" />}
@@ -314,7 +313,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                 </div>
             </div>
           ) : isGrid ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '8mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '5mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                <div className="h-full flex flex-col overflow-hidden">
                   <header className="text-center mb-2 flex flex-col justify-center border-b border-black/20 pb-1 relative h-16 flex-shrink-0">
                      {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-16 w-16 object-contain" alt="Logo Esq" />}
@@ -396,7 +395,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                </div>
             </div>
           ) : (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '8mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '5mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                 <div className="h-full flex flex-col overflow-hidden">
                     <header className="text-center mb-1 relative h-16 flex items-center justify-center flex-shrink-0">
                        {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-16 w-16 object-contain" alt="Logo Esq" />}
