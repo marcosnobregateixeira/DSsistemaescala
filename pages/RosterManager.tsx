@@ -473,7 +473,7 @@ export const RosterManager: React.FC = () => {
       creationDate: newRosterMeta.creationDate || new Date().toISOString().split('T')[0],
       shifts: initialShifts, 
       observations: isExtra ? '' : (isAdm ? 'Obs: (M) Motorista, (T) Tarde' : (isAmb ? 'Obs.1: Fiscal(F), Enfermeiro(E), Motorista(M), Fiscal/Motorista(F.M)' : 'Obs.1: ...')),
-      observationsTitle: 'Observações Gerais',
+      observationsTitle: 'OBSERVAÇÕES GERAIS',
       situationText: isExtra ? '' : '',
       subTitle: subTitle,
       isPublished: false,
@@ -1545,13 +1545,24 @@ export const RosterManager: React.FC = () => {
                 <div className="mt-1 flex flex-col justify-end text-black">
                      <div className="flex w-full mb-2">
                         <div className="w-1/2 pr-2">
-                            <input 
-                              readOnly={!isAdmin}
-                              className={`text-[7pt] font-bold text-gray-500 uppercase bg-transparent border-none w-full mb-1 outline-none ${isAdmin ? 'placeholder-gray-400' : 'pointer-events-none'}`}
-                              value={selectedRoster.observationsTitle || 'Observações Gerais'}
-                              onChange={(e) => updateRoster({...selectedRoster, observationsTitle: e.target.value})}
-                              placeholder={isAdmin ? "CLIQUE PARA EDITAR TÍTULO" : ""}
-                            />
+                             <div className="flex justify-between items-center mb-1">
+                                <input 
+                                  readOnly={!isAdmin}
+                                  className={`text-[7pt] font-bold text-gray-500 uppercase bg-transparent border-none w-full outline-none ${isAdmin ? 'placeholder-gray-400' : 'pointer-events-none'}`}
+                                  value={selectedRoster.observationsTitle || 'OBSERVAÇÕES GERAIS'}
+                                  onChange={(e) => updateRoster({...selectedRoster, observationsTitle: e.target.value})}
+                                  placeholder={isAdmin ? "CLIQUE PARA EDITAR TÍTULO" : ""}
+                                />
+                                {isAdmin && selectedRoster.type === 'cat_amb' && (
+                                    <button 
+                                      onClick={() => updateRoster({...selectedRoster, observations: 'Obs.1: Fiscal(F), Enfermeiro(E), Motorista(M), Fiscal/Motorista(F.M)'})}
+                                      className="text-[9px] bg-gray-50 text-gray-600 hover:bg-gray-100 px-2 py-0.5 rounded flex items-center gap-1 font-bold uppercase whitespace-nowrap"
+                                      title="Restaurar observação padrão da ambulância"
+                                    >
+                                       <Icons.RotateCcw size={10}/> Reset
+                                    </button>
+                                )}
+                             </div>
                             <textarea 
                                 readOnly={!isAdmin}
                                 className={`w-full bg-transparent resize-none outline-none border border-transparent text-[7pt] h-14 text-black ${isAdmin ? 'hover:border-gray-300' : 'pointer-events-none'}`} 

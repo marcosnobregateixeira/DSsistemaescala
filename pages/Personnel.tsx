@@ -48,6 +48,20 @@ export const Personnel: React.FC = () => {
   const handleSave = () => {
     if (!formData.name || !formData.role) return alert("Nome de Guerra e Função são obrigatórios");
 
+    // Check for duplicates (Matrícula or MF)
+    if (formData.matricula || formData.mf) {
+      const isDuplicate = soldiers.some(s => 
+        s.id !== editingId && (
+          (formData.matricula && s.matricula === formData.matricula) ||
+          (formData.mf && s.mf === formData.mf)
+        )
+      );
+
+      if (isDuplicate) {
+        return alert("Erro: Já existe um militar cadastrado com esta Matrícula ou M.F.");
+      }
+    }
+
     let nextOrder = formData.orderExtra;
     if (nextOrder === undefined || nextOrder === null) {
        const maxOrder = Math.max(...soldiers.map(s => s.orderExtra || 0), 0);
@@ -149,6 +163,13 @@ export const Personnel: React.FC = () => {
       const rank = findEnum(Rank, rawRank, Rank.SD);
       const role = findEnum(Role, rawRole, Role.ADMINISTRATIVO);
       
+      // Check for duplicates in import
+      const isDuplicate = soldiers.some(s => 
+        (matricula && s.matricula === matricula)
+      );
+      
+      if (isDuplicate) return;
+
       currentMaxOrder++;
 
       const newSoldier: Soldier = {

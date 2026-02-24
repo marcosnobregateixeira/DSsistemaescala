@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../services/store';
 import { Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar } from 'lucide-react';
 import { Rank, Status, Soldier, BankTransaction, Roster, Cadre, ExtraDutyHistory } from '../types';
@@ -28,6 +29,7 @@ const getRankWeight = (rank: string) => {
 };
 
 export const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const user = db.getCurrentUser();
   const [soldiers, setSoldiers] = useState<Soldier[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
@@ -547,7 +549,7 @@ export const Dashboard: React.FC = () => {
 
         {/* Card Novo: Relatórios */}
         <button 
-           onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'reports' }))}
+           onClick={() => navigate('/reports')}
            className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 flex items-center space-x-4 hover:shadow-xl hover:border-pm-600 dark:hover:border-pm-400 transition-all group relative overflow-hidden text-left min-h-[140px]"
         >
           <div className="absolute right-0 top-0 w-24 h-24 bg-pm-50 dark:bg-pm-900/20 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>

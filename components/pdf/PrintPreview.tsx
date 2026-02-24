@@ -65,8 +65,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   // Todo o resto (Adm, Ast) usa layout Grade Paisagem
   const isGrid = !isExtra && !isAmbOrPsi;
   
-  // PADRÃO: RETRATO (PORTRAIT) PARA TODAS AS ESCALAS
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  // PADRÃO: PAISAGEM (LANDSCAPE) PARA TODAS AS ESCALAS
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
 
   const cleanHeaderTitle = (roster.headerTitle || settings.orgName || '').replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '');
 
@@ -117,7 +117,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     element.style.margin = '0';
 
     const opt = {
-      margin: 0, 
+      margin: [5, 5, 5, 5], 
       filename: `Escala_${roster.title.replace(/\s+/g, '_')}.pdf`,
       image: { type: 'jpeg', quality: 1 },
       html2canvas: { scale: 2, useCORS: true, scrollY: 0, letterRendering: true },
@@ -167,8 +167,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     const s = item.soldier;
 
     if (h.includes('GRAD') || h.includes('POSTO')) return getAbbreviatedRank(s.rank);
-    if (h.includes('COMPLETO')) return <span className="text-left block pl-2 font-bold uppercase">{s.fullName || s.name}</span>;
-    if (h.includes('NOME')) return <div className="text-left pl-2 font-bold uppercase truncate">{s.name}</div>;
+    if (h.includes('COMPLETO')) return <span className="text-left block pl-2 uppercase">{s.fullName || s.name}</span>;
+    if (h.includes('NOME')) return <div className="text-left pl-2 uppercase truncate">{s.name}</div>;
     if (h === 'NUMERO' || h.includes('NUMERO') || h.includes('NUMERAL')) return s.matricula || '-';
     if (h.includes('MATRICULA') || h.includes('MATRÍCULA') || h === 'MF' || h === 'M.F' || h.includes('FUNCIONAL')) return s.mf || '-';
     if (h === 'MAT' || h === 'MAT.' || h === 'NUM' || h === 'NUM.') return s.matricula || '-';
@@ -183,8 +183,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   };
 
   const containerClass = orientation === 'landscape' 
-    ? "w-[297mm] h-[210mm] overflow-hidden" 
-    : "w-[210mm] h-[297mm] overflow-hidden";
+    ? "w-[297mm] min-h-[210mm]" 
+    : "w-[210mm] min-h-[297mm]";
 
   return (
     <div className="fixed inset-0 bg-gray-900/95 z-50 overflow-hidden no-print flex flex-col backdrop-blur-sm animate-in fade-in duration-200">
@@ -207,7 +207,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
         @media print {
           @page { 
             size: ${orientation} A4; 
-            margin: 0; 
+            margin: 5mm; 
           }
           body { 
             -webkit-print-color-adjust: exact !important; 
@@ -324,11 +324,11 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                 </div>
             </div>
           ) : isGrid ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '8mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                <div className="h-full flex flex-col overflow-hidden">
-                  <header className="text-center mb-2 flex flex-col justify-center border-b border-black/20 pb-1 relative h-12 flex-shrink-0">
-                     {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-12 w-12 object-contain" alt="Logo Esq" />}
-                     <div className="mx-16">
+                  <header className="text-center mb-2 flex flex-col justify-center border-b border-black/20 pb-1 relative h-16 flex-shrink-0">
+                     {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-16 w-16 object-contain" alt="Logo Esq" />}
+                     <div className="mx-20">
                        {/* TÍTULO DA ORGANIZAÇÃO (AGORA PERSONALIZÁVEL) */}
                        <h1 className="text-[10pt] font-bold uppercase tracking-wide text-gray-800">
                          {cleanHeaderTitle}
@@ -336,7 +336,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                        <h2 className="text-[12pt] font-black uppercase tracking-tight leading-tight">{roster.title}</h2>
                        <div className="text-[8pt] font-bold uppercase">DO DIA {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
                      </div>
-                     {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-12 w-12 object-contain" alt="Logo Dir" />}
+                     {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-16 w-16 object-contain" alt="Logo Dir" />}
                   </header>
                   <div className="flex-1 border border-black overflow-hidden relative">
                     <table className="w-full h-full border-collapse text-[8pt] table-fixed">
@@ -406,11 +406,11 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                </div>
             </div>
           ) : (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '10mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '8mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
                 <div className="h-full flex flex-col overflow-hidden">
-                    <header className="text-center mb-1 relative h-12 flex items-center justify-center flex-shrink-0">
-                       {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-12 w-12 object-contain" alt="Logo Esq" />}
-                       <div className="mx-14 w-full">
+                    <header className="text-center mb-1 relative h-16 flex items-center justify-center flex-shrink-0">
+                       {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-16 w-16 object-contain" alt="Logo Esq" />}
+                       <div className="mx-16 w-full">
                          {/* TÍTULO EDITÁVEL DA ORGANIZAÇÃO (AMBULÂNCIA/PSICOLOGIA) */}
                          <h1 className="text-[8pt] font-bold uppercase tracking-tight leading-none mb-1">
                             {cleanHeaderTitle}
@@ -420,7 +420,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                              PERÍODO: {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}
                           </div>
                        </div>
-                       {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-12 w-12 object-contain" alt="Logo Dir" />}
+                       {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-16 w-16 object-contain" alt="Logo Dir" />}
                     </header>
                     {roster.subTitle && (
                         <div className="bg-[#cbd5b0] border border-black border-b-0 p-0.5 text-center font-bold text-[7pt] uppercase mb-0 flex-shrink-0">
