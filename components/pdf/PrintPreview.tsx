@@ -117,11 +117,11 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     element.style.margin = '0';
 
     const opt = {
-      margin: [5, 5, 5, 5], 
+      margin: 0, 
       filename: `Escala_${roster.title.replace(/\s+/g, '_')}.pdf`,
       image: { type: 'jpeg', quality: 1 },
       html2canvas: { scale: 2, useCORS: true, scrollY: 0, letterRendering: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: orientation }
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
     };
 
     try {
@@ -182,9 +182,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     return item.shift.customData?.[colIndex.toString()] || '-';
   };
 
-  const containerClass = orientation === 'landscape' 
-    ? "w-[297mm] min-h-[210mm]" 
-    : "w-[210mm] min-h-[297mm]";
+  const containerClass = "w-[297mm] h-[210mm] overflow-hidden";
 
   return (
     <div className="fixed inset-0 bg-gray-900/95 z-50 overflow-hidden no-print flex flex-col backdrop-blur-sm animate-in fade-in duration-200">
@@ -206,8 +204,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
 
         @media print {
           @page { 
-            size: ${orientation} A4; 
-            margin: 5mm; 
+            size: landscape A4; 
+            margin: 0; 
           }
           body { 
             -webkit-print-color-adjust: exact !important; 
@@ -216,16 +214,16 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
             color: black !important;
             margin: 0; 
             padding: 0;
-            width: ${orientation === 'landscape' ? '297mm' : '210mm'};
-            height: ${orientation === 'landscape' ? '210mm' : '297mm'};
+            width: 297mm;
+            height: 210mm;
             overflow: hidden;
           }
           #roster-pdf-content { 
-            width: ${orientation === 'landscape' ? '297mm' : '210mm'} !important; 
-            height: ${orientation === 'landscape' ? '210mm' : '297mm'} !important; 
+            width: 297mm !important; 
+            height: 210mm !important; 
             box-shadow: none !important; 
             margin: 0 !important;
-            padding: 5mm !important; /* REDUZIDO PARA CABER MAIS CONTEÚDO */
+            padding: 5mm !important;
             transform: none !important;
             page-break-inside: avoid;
             page-break-after: avoid;
@@ -240,15 +238,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
       {/* Barra de Ferramentas */}
       <div className="bg-gray-800 p-3 text-white flex justify-between items-center sticky top-0 z-50 border-b border-gray-700 shadow-xl no-print-internal">
         <div className="flex items-center space-x-4">
-           <h2 className="font-bold flex items-center space-x-2 text-base"><FileText size={20}/> <span className="hidden md:inline">Visualização de Impressão</span></h2>
-           <button 
-             onClick={toggleOrientation}
-             className={`px-3 py-1 rounded text-xs font-bold uppercase flex items-center space-x-2 transition-all hover:scale-105 ${orientation === 'portrait' ? 'bg-purple-600' : 'bg-blue-600'}`}
-             title="Clique para alternar orientação"
-           >
-             <RotateCw size={14} />
-             <span>{orientation === 'portrait' ? 'Retrato (A4)' : 'Paisagem (A4)'}</span>
-           </button>
+           <h2 className="font-bold flex items-center space-x-2 text-base"><FileText size={20}/> <span className="hidden md:inline">Visualização de Impressão (A4 Paisagem)</span></h2>
         </div>
 
         <div className="flex items-center space-x-2">
