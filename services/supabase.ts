@@ -3,10 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-console.log('Supabase URL:', supabaseUrl ? 'Configurada' : 'NÃO CONFIGURADA');
-console.log('Supabase Key:', supabaseAnonKey ? 'Configurada' : 'NÃO CONFIGURADA');
+const isConfigured = supabaseUrl && 
+                   supabaseAnonKey && 
+                   supabaseUrl !== 'YOUR_SUPABASE_URL' && 
+                   supabaseAnonKey !== 'YOUR_SUPABASE_ANON_KEY';
 
-export const supabase = supabaseUrl && supabaseAnonKey 
+if (!isConfigured) {
+  console.warn('Supabase: Variáveis de ambiente não configuradas ou contêm valores padrão. O modo offline (LocalStorage) será utilizado.');
+}
+
+export const supabase = isConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         storage: sessionStorage,

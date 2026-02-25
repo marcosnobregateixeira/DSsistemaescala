@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Layout } from './components/ui/Layout.tsx';
+import { Layout } from './components/ui/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Personnel } from './pages/Personnel';
 import { RosterManager } from './pages/RosterManager';

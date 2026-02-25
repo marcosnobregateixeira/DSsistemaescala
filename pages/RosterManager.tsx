@@ -1074,14 +1074,12 @@ export const RosterManager: React.FC = () => {
                 <div className="flex-1 border border-black overflow-auto relative">
                   {isAdmin && (
                     <div className="bg-gray-100 border-b border-black p-1 flex justify-end items-center space-x-4 no-print px-3">
-                       {(selectedRoster.type !== 'cat_extra') && (
                            <button 
                              onClick={() => setIsAutoModalOpen(true)}
                              className="flex items-center space-x-1 text-[8pt] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded hover:bg-purple-200 uppercase mr-auto border border-purple-200 shadow-sm"
                            >
                               <Wand2 size={12}/> <span>Gerar Escala Automática</span>
                            </button>
-                       )}
                        
                        {(selectedRoster.type === 'cat_adm' || selectedRoster.type === 'cat_ast') && (
                          <div className="flex items-center space-x-4">

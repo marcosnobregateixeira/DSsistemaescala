@@ -223,7 +223,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
             box-shadow: none !important; 
             margin: 0 !important;
             padding: 5mm !important;
-            transform: none !important;
+            transform: scale(0.98) !important;
+            transform-origin: top center !important;
             page-break-inside: avoid;
             page-break-after: avoid;
             overflow: hidden !important;
@@ -241,7 +242,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
         </div>
 
         <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-gray-700 rounded-lg p-1 mr-2">
+          <div className="hidden md:flex items-center bg-gray-700 rounded-lg p-1 mr-2">
             <button onClick={() => setZoomLevel(z => Math.max(0.3, z - 0.1))} className="p-1.5 hover:text-blue-300 hover:bg-gray-600 rounded transition"><ZoomOut size={16}/></button>
             <span className="text-xs font-mono w-10 text-center">{Math.round(zoomLevel * 100)}%</span>
             <button onClick={() => setZoomLevel(z => Math.min(2, z + 0.1))} className="p-1.5 hover:text-blue-300 hover:bg-gray-600 rounded transition"><ZoomIn size={16}/></button>
@@ -250,10 +251,10 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
           </div>
           <button onClick={onClose} className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-xs font-bold uppercase transition">Voltar</button>
           <button onClick={handleDownloadPDF} disabled={isGenerating} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded font-bold flex items-center text-xs shadow-md transition uppercase">
-            {isGenerating ? <Loader2 className="animate-spin mr-1" size={14}/> : <Download className="mr-1" size={14}/>} PDF
+            {isGenerating ? <Loader2 className="animate-spin mr-1" size={14}/> : <Download className="mr-1" size={14}/>} <span className="hidden sm:inline">PDF</span>
           </button>
           <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded font-bold flex items-center text-xs shadow-md transition uppercase">
-            <Printer className="mr-1" size={14}/> Imprimir
+            <Printer className="mr-1" size={14}/> <span className="hidden sm:inline">Imprimir</span>
           </button>
         </div>
       </div>
