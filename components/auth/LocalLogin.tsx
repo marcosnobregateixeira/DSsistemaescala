@@ -21,11 +21,11 @@ export const LocalLogin: React.FC = () => {
     setError('');
 
     try {
-      const isValid = await db.verifyAdminPassword(password);
-      if (isValid) {
-        db.login('ADMIN');
+      const { user, error } = await db.login(password);
+      if (user) {
+        // Sucesso - o redirecionamento ou atualização de estado acontece via db.subscribe no App.tsx
       } else {
-        setError('Senha incorreta');
+        setError(error || 'Senha incorreta');
       }
     } catch (err) {
       setError('Erro ao verificar senha');
@@ -56,19 +56,19 @@ export const LocalLogin: React.FC = () => {
       const isKeyValid = db.verifyRecoveryKey(recoveryKey);
       if (isKeyValid) {
         await db.resetAdminPassword(newPassword);
-        setSuccess('Senha alterada com sucesso! Faça login com a nova senha.');
+        setSuccess('Usuário criado/senha definida! Faça login agora.');
         setTimeout(() => {
             setIsResetting(false);
             setSuccess('');
             setRecoveryKey('');
             setNewPassword('');
             setConfirmNewPassword('');
-        }, 2000);
+        }, 3000);
       } else {
         setError('Chave Mestra inválida');
       }
-    } catch (err) {
-      setError('Erro ao redefinir senha');
+    } catch (err: any) {
+      setError(err.message || 'Erro ao redefinir senha');
     } finally {
       setLoading(false);
     }

@@ -25,10 +25,46 @@ function App() {
       document.documentElement.classList.remove('dark');
     }
 
-    // Subscribe to auth changes
+    // Subscribe to auth changes (Local Store + Supabase)
     const unsubscribe = db.subscribe(() => {
       setUser(db.getCurrentUser());
     });
+    
+    // Check initial session from Supabase
+    import('./services/supabase').then(({ supabase }) => {
+      if (supabase) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+             // Sync Supabase session to local store format
+             const user: User = {
+                id: session.user.id,
+                username: session.user.email || 'Administrador',
+                role: 'ADMIN'
+             };
+             sessionStorage.setItem('current_user', JSON.stringify(user));
+             setUser(user);
+          }
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (session?.user) {
+             const user: User = {
+                id: session.user.id,
+                username: session.user.email || 'Administrador',
+                role: 'ADMIN'
+             };
+             sessionStorage.setItem('current_user', JSON.stringify(user));
+             setUser(user);
+          } else {
+             sessionStorage.removeItem('current_user');
+             setUser(null);
+          }
+        });
+        
+        return () => subscription.unsubscribe();
+      }
+    });
+
     return unsubscribe;
   }, []);
 

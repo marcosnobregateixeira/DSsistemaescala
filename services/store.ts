@@ -272,56 +272,103 @@ class StoreService {
     }
   }
 
+  // --- AUTHENTICATION LOGIC (SUPABASE) ---
+
+  async login(password: string): Promise<{ user: User | null, error: string | null }> {
+    if (!supabase) {
+      // Fallback para modo offline (apenas para desenvolvimento local sem Supabase)
+      // Em produção, isso deve ser desabilitado ou removido.
+      console.warn('Supabase não configurado. Usando autenticação local insegura (apenas dev).');
+      const mockUser: User = { id: 'local-admin', username: 'Administrador (Offline)', role: 'ADMIN' };
+      sessionStorage.setItem('current_user', JSON.stringify(mockUser));
+      this.notify();
+      return { user: mockUser, error: null };
+    }
+
+    try {
+      // Mapeamento de senha única para email/senha do Supabase
+      // Isso mantém a UX de "Senha Única" solicitada, mas usa autenticação real no backend.
+      // O email é fixo para este caso de uso específico.
+      const email = 'marcos_notigan@hotmail.com'; // Email administrativo padrão
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        console.error('Erro de autenticação:', error.message);
+        return { user: null, error: 'Senha incorreta ou usuário não autorizado.' };
+      }
+
+      if (data.user) {
+        const user: User = {
+          id: data.user.id,
+          username: data.user.email || 'Administrador',
+          role: 'ADMIN' // Assumimos admin para quem tem a senha correta neste modelo simplificado
+        };
+        sessionStorage.setItem('current_user', JSON.stringify(user));
+        this.notify();
+        return { user, error: null };
+      }
+      
+      return { user: null, error: 'Erro desconhecido ao fazer login.' };
+    } catch (err: any) {
+      return { user: null, error: err.message || 'Erro de conexão.' };
+    }
+  }
+
+  async logout(): Promise<void> {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    sessionStorage.removeItem('current_user');
+    this.notify();
+  }
+
   getCurrentUser(): User | null {
     const data = sessionStorage.getItem('current_user');
     return data ? JSON.parse(data) : null;
   }
-
-  login(role: 'ADMIN' | 'USER'): void {
-    const user = { id: role === 'ADMIN' ? 'local-admin' : 'local-user', username: role === 'ADMIN' ? 'Administrador' : 'Visualizador', role };
-    sessionStorage.setItem('current_user', JSON.stringify(user));
-    this.notify();
-  }
   
-  // --- GERENCIAMENTO DE SENHA SEGURO ---
-  private async hashPassword(password: string): Promise<string> {
-    const msgUint8 = new TextEncoder().encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
+  // --- MÉTODOS DEPRECATED/REMOVIDOS (Mantidos como stub para evitar quebra de build imediata, mas seguros) ---
+  
   async verifyAdminPassword(input: string): Promise<boolean> {
-    const stored = localStorage.getItem('admin_password') || '123456';
-    const hashedInput = await this.hashPassword(input);
-    
-    // Se o que está guardado tem 64 caracteres, assumimos que é um hash SHA-256
-    if (stored.length === 64) {
-      return stored === hashedInput;
-    } else {
-      // Caso de migração: se a senha guardada for texto puro (ex: '123456')
-      if (stored === input) {
-        // Migra automaticamente para o formato seguro (hash)
-        await this.updateAdminPassword(input);
-        return true;
-      }
-      return false;
-    }
+    console.warn('verifyAdminPassword is deprecated. Use login() instead.');
+    return false; 
   }
 
   async updateAdminPassword(newPassword: string): Promise<void> {
-    const hashed = await this.hashPassword(newPassword);
-    localStorage.setItem('admin_password', hashed);
+     if (supabase) {
+       await supabase.auth.updateUser({ password: newPassword });
+     }
   }
 
   verifyRecoveryKey(key: string): boolean {
-    // Chave Mestra de Recuperação (Hardcoded para este ambiente, idealmente seria ENV)
+    // Chave Mestra para recuperação de acesso (Legado/Emergência)
     const MASTER_KEY = "PMCE@2025";
     return key === MASTER_KEY;
   }
 
   async resetAdminPassword(newPassword: string): Promise<void> {
-    await this.updateAdminPassword(newPassword);
+    if (supabase) {
+        const email = 'marcos_notigan@hotmail.com';
+        
+        // Tenta criar o usuário (caso não exista)
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password: newPassword,
+        });
+
+        if (error) {
+            // Se o usuário já existe, não podemos alterar a senha sem a antiga ou sem email.
+            // Mas para facilitar o "setup", vamos logar o erro.
+            console.error("Erro ao criar/resetar usuário admin:", error.message);
+            throw new Error(error.message.includes("already registered") 
+                ? "Usuário admin já existe. Use o painel do Supabase para resetar." 
+                : error.message);
+        }
+    }
   }
 
   // --- DEBUG / TEST ---
