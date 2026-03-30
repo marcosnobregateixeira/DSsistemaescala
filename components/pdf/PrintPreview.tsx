@@ -1,7 +1,8 @@
+import html2pdf from 'html2pdf.js';
 import React, { useState, useMemo, useEffect } from 'react';
 import { Roster, Rank } from '../../types';
 import { db } from '../../services/store';
-import { getHolidayName, getRankWeight } from '../../utils';
+import { getHolidayName, getRankWeight, getAbbreviatedRank } from '../../utils';
 import { Printer, Download, Loader2, FileText, ZoomIn, ZoomOut, Monitor, RotateCw } from 'lucide-react';
 
 interface PrintPreviewProps {
@@ -9,30 +10,8 @@ interface PrintPreviewProps {
   onClose: () => void;
 }
 
-// Helper para abreviar patentes
-const getAbbreviatedRank = (rank: string) => {
-  const map: Record<string, string> = {
-    [Rank.CEL]: 'Cel', 
-    [Rank.TEN_CEL]: 'TC', 
-    [Rank.MAJ]: 'Maj', 
-    [Rank.CAP]: 'Cap', 
-    [Rank.TEN_1]: '1ºTen', 
-    [Rank.TEN_2]: '2ºTen',
-    [Rank.ASP]: 'Asp', 
-    [Rank.AL_OF]: 'Al Of',
-    [Rank.SUBTEN]: 'ST', 
-    [Rank.SGT_1]: '1ºSgt', 
-    [Rank.SGT_2]: '2ºSgt', 
-    [Rank.SGT_3]: '3ºSgt', 
-    [Rank.CB]: 'Cb', 
-    [Rank.SD]: 'Sd', 
-    [Rank.CIVIL]: 'Civ'
-  };
-  return map[rank] || rank;
-};
-
 export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) => {
-  const settings = db.getSettings();
+  const settings = db.getSettings() as any;
   const allSoldiers = db.getSoldiers();
   const [isGenerating, setIsGenerating] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(0.8); // Zoom inicial
@@ -46,25 +25,85 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   const isGrid = !isExtra && !isAmbOrPsi;
   
   // PADRÃO: PAISAGEM (LANDSCAPE) PARA TODAS AS ESCALAS
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
 
-  const cleanHeaderTitle = (roster.headerTitle || settings.orgName || '').replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '');
+  const cleanHeaderTitle = (roster.headerTitle || settings.orgName || settings.institutionName || '').replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '');
 
-  // Ajuste automático ao abrir
+  const appearance = settings.appearance || { fontFamily: 'Arial, Helvetica, sans-serif', fontSize: 'medium', textCase: 'uppercase' };
+
+  const getPrintFontSize = (type: 'name' | 'phone' | 'header' | 'title' | 'subtitle' | 'cell' | 'meta' | 'tiny', size: string) => {
+      const isOdo = roster.type === 'cat_odo';
+      const sizes = {
+          small: { 
+            name: isOdo ? '5.5pt' : '6.5pt', 
+            phone: isOdo ? '5pt' : '6pt', 
+            header: isOdo ? '5.5pt' : '6pt', 
+            title: isOdo ? '8pt' : '9pt', 
+            subtitle: isOdo ? '6.5pt' : '7pt', 
+            cell: isOdo ? '5.5pt' : '6.5pt', 
+            meta: isOdo ? '5.5pt' : '6pt', 
+            tiny: isOdo ? '4.5pt' : '5pt' 
+          },
+          medium: { 
+            name: isOdo ? '6.5pt' : '7.5pt', 
+            phone: isOdo ? '6pt' : '7pt', 
+            header: isOdo ? '6.5pt' : '7pt', 
+            title: isOdo ? '9.5pt' : '10.5pt', 
+            subtitle: isOdo ? '7.5pt' : '8pt', 
+            cell: isOdo ? '6.5pt' : '7.5pt', 
+            meta: isOdo ? '6.5pt' : '7pt', 
+            tiny: isOdo ? '5pt' : '5.5pt' 
+          },
+          large: { 
+            name: isOdo ? '7.5pt' : '8.5pt', 
+            phone: isOdo ? '7pt' : '8pt', 
+            header: isOdo ? '7.5pt' : '8pt', 
+            title: isOdo ? '11pt' : '12pt', 
+            subtitle: isOdo ? '8.5pt' : '9pt', 
+            cell: isOdo ? '7.5pt' : '8.5pt', 
+            meta: isOdo ? '7.5pt' : '8pt', 
+            tiny: isOdo ? '5.5pt' : '6pt' 
+          }
+      };
+      // @ts-ignore
+      return sizes[size]?.[type] || sizes.medium[type];
+  };
+
+  const getPrintTextTransform = (c: string) => {
+      switch(c) {
+          case 'lowercase': return 'lowercase';
+          case 'capitalize': return 'capitalize';
+          case 'normal': return 'none';
+          default: return 'uppercase';
+      }
+  };
+
+  const textTransformStyle = { textTransform: getPrintTextTransform(appearance.textCase) as any };
+
+  // Ajuste automático ao abrir e quando o tipo de escala mudar
   useEffect(() => {
-    handleFitToScreen();
-  }, [orientation]);
+    const timer = setTimeout(() => {
+      handleFitToScreen();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [roster.type]);
 
   const handleFitToScreen = () => {
     const screenHeight = window.innerHeight;
-    // Altura base A4 Landscape (794px a 96dpi) vs Portrait (1123px)
-    const contentHeight = orientation === 'portrait' ? 1123 : 794; 
+    const element = document.getElementById('roster-pdf-content');
+    
+    // Altura base A4 Landscape (794px a 96dpi)
+    let contentHeight = 794; 
+    
+    if (roster.type === 'cat_odo' && element) {
+      const wrapper = element.querySelector('.flex-col.h-auto') as HTMLElement;
+      if (wrapper) {
+        // Se o conteúdo for maior que o A4, ajustamos o zoom para caber tudo
+        contentHeight = Math.max(794, wrapper.scrollHeight);
+      }
+    }
+    
     const fitZoom = (screenHeight - 140) / contentHeight; 
-    setZoomLevel(Math.max(0.4, Math.min(fitZoom, 1.2)));
-  };
-
-  const toggleOrientation = () => {
-    setOrientation(prev => prev === 'portrait' ? 'landscape' : 'portrait');
+    setZoomLevel(Math.max(0.3, Math.min(fitZoom, 1.2)));
   };
 
   // Processamento de dados para Escala Extra (Lista Plana, sem agrupar por Quadro)
@@ -81,7 +120,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
       const weightA = getRankWeight(a.soldier.rank);
       const weightB = getRankWeight(b.soldier.rank);
       if (weightA !== weightB) return weightA - weightB;
-      return a.soldier.name.localeCompare(b.soldier.name);
+      return (a.soldier.name || '').localeCompare(b.soldier.name || '');
     });
 
     return list;
@@ -98,21 +137,46 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     
     element.style.transform = 'none';
     element.style.margin = '0';
-    element.style.width = '297mm'; // Force A4 Landscape width
-    element.style.minHeight = '210mm'; // Ensure at least A4 Landscape height
+    element.style.padding = '0';
+    element.style.width = '297mm';
+    
+    // Especial para Odontologia: Ajustar escala para caber em uma única página
+    let wrapperOriginalStyle = '';
+    if (roster.type === 'cat_odo') {
+      element.style.height = 'auto';
+      element.style.minHeight = 'auto';
+      
+      // Encontrar o wrapper interno para aplicar escala se necessário
+      const wrapper = element.querySelector('.flex-col.h-auto') as HTMLElement;
+      if (wrapper) {
+        wrapperOriginalStyle = wrapper.getAttribute('style') || '';
+        const contentHeight = wrapper.scrollHeight;
+        const targetHeight = 210 * 3.78; // Aprox. pixels para 210mm (96dpi)
+        
+        if (contentHeight > targetHeight) {
+          const scale = (targetHeight - 10) / contentHeight; // Margem de segurança
+          wrapper.style.transform = `scale(${scale})`;
+          wrapper.style.transformOrigin = 'top center';
+          wrapper.style.width = '100%';
+        }
+      }
+      element.style.height = '210mm';
+      element.style.overflow = 'hidden';
+    } else {
+      element.style.height = '210mm';
+    }
 
     const opt = {
       margin: 0, 
       filename: `Escala_${roster.title.replace(/\s+/g, '_')}.pdf`,
-      image: { type: 'jpeg', quality: 1 },
+      image: { type: 'jpeg' as const, quality: 1 },
       html2canvas: { scale: 2, useCORS: true, scrollY: 0, letterRendering: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak: { mode: ['css', 'legacy'] }
+      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const },
+      pagebreak: { mode: 'avoid-all' }
     };
 
     try {
-      // @ts-ignore
-      await window.html2pdf().set(opt).from(element).save();
+      await html2pdf().set(opt).from(element).save();
     } catch (e) { 
       alert("Erro ao gerar PDF."); 
       console.error(e);
@@ -124,7 +188,16 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
       } else {
         element.style.width = originalWidth;
         element.style.minHeight = originalMinHeight;
+        element.style.height = '';
+        element.style.transform = '';
+        element.style.overflow = '';
       }
+      
+      if (wrapperOriginalStyle) {
+        const wrapper = element.querySelector('.flex-col.h-auto') as HTMLElement;
+        if (wrapper) wrapper.setAttribute('style', wrapperOriginalStyle);
+      }
+      
       handleFitToScreen();
     }
   };
@@ -150,27 +223,59 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     : new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
 
   // Headers dinâmicos para Extra
-  const HEADERS = roster.customHeaders || ['ORDEM', 'POST/GRADUAÇÃO', 'NUMERO', 'NOME COMPLETO', 'MATRICULA', 'CELULAR'];
+  const HEADERS = roster.customHeaders || ['ORDEM', 'POST/GRADUAÇÃO', 'NUMERO', 'NOME COMPLETO', 'MATRICULA', 'PIS', 'CELULAR'];
 
   // Helper de Renderização de Célula Extra (Similar ao Editor)
   const renderExtraCell = (headerName: string, item: any, colIndex: number) => {
     const h = headerName.toUpperCase();
     const s = item.soldier;
+    const textStyle = { textTransform: getPrintTextTransform(appearance.textCase) as any };
 
-    if (h.includes('GRAD') || h.includes('POSTO')) return getAbbreviatedRank(s.rank);
-    if (h.includes('COMPLETO')) return <span className="text-left block pl-2 uppercase">{s.fullName || s.name}</span>;
-    if (h.includes('NOME')) return <div className="text-left pl-2 uppercase truncate">{s.name}</div>;
+    if (h.includes('GRAD') || h.includes('POSTO')) return <span style={textStyle}>{getAbbreviatedRank(s.rank)}</span>;
+    if (h.includes('COMPLETO')) {
+      const fullName = s.fullName || s.name;
+      let displayName: React.ReactNode = fullName;
+      
+      if (s.fullName && s.name) {
+        try {
+          // Split short name into words and escape each part
+          const nameParts = s.name.trim().split(/\s+/).filter(Boolean);
+          // Sort by length descending to match longer words first
+          nameParts.sort((a, b) => b.length - a.length);
+          
+          const escapedParts = nameParts.map((part: string) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          const regex = new RegExp(`(${escapedParts.join('|')})`, 'gi');
+          
+          const parts = s.fullName.split(regex);
+          displayName = parts.map((part: string, i: number) => {
+            const isMatch = nameParts.some(np => np.toLowerCase() === part.toLowerCase());
+            return isMatch ? <strong key={i} className="font-black">{part}</strong> : part;
+          });
+        } catch (e) {
+          // Fallback if regex fails
+          displayName = fullName;
+        }
+      } else if (!s.fullName) {
+        displayName = <strong className="font-black">{s.name}</strong>;
+      }
+
+      return <span className="text-center block" style={textStyle}>{displayName} {s.roleShort}</span>;
+    }
+    if (h.includes('NOME')) return <div className="text-center truncate font-black" style={textStyle}>{s.name} {s.roleShort}</div>;
     if (h === 'NUMERO' || h.includes('NUMERO') || h.includes('NUMERAL')) return s.matricula || '-';
     if (h.includes('MATRICULA') || h.includes('MATRÍCULA') || h === 'MF' || h === 'M.F' || h.includes('FUNCIONAL')) return s.mf || '-';
+    if (h === 'PIS' || h.includes('PIS')) return s.pis || '-';
     if (h === 'MAT' || h.includes('MAT.') || h === 'NUM' || h.includes('NUM.')) return s.matricula || '-';
     if (h.includes('CEL') || h.includes('TEL')) return s.phone || '-';
-    if (h.includes('FUN') || h.includes('CARGO')) return <span>{s.role}</span>;
-    if (h.includes('SETOR') || h.includes('UNIDADE') || h.includes('LOTA')) return <span>{s.sector}</span>;
-    if (h.includes('SIT') || h.includes('STATUS')) return <span className="font-bold">{s.status}</span>;
+    if (h.includes('FUN') || h.includes('CARGO')) return <span style={textStyle}>{s.role}</span>;
+    if (h.includes('SETOR') || h.includes('UNIDADE') || h.includes('LOTA')) return <span style={textStyle}>{s.sector}</span>;
+    if (h.includes('SIT') || h.includes('STATUS')) return <span className="font-bold" style={textStyle}>{s.status}</span>;
     if (h === 'NR' || h === 'NR.' || h === 'OBS') {
-        return item.shift.customData?.[colIndex] !== undefined ? item.shift.customData[colIndex] : (item.shift.note || '-');
+        const val = item.shift.customData?.[colIndex.toString()] !== undefined ? item.shift.customData[colIndex.toString()] : (item.shift.note || '-');
+        return <span style={textStyle}>{val}</span>;
     }
-    return item.shift.customData?.[colIndex.toString()] || '-';
+    const customVal = item.shift.customData?.[colIndex.toString()] || '-';
+    return <span style={textStyle}>{customVal}</span>;
   };
 
   const containerClass = "w-[297mm] min-h-[210mm] bg-white";
@@ -207,25 +312,21 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
           }
           html, body { 
             width: 297mm;
-            height: auto !important;
-            min-height: 210mm;
+            height: 210mm;
             margin: 0 !important; 
             padding: 0 !important;
-            overflow: visible !important;
+            overflow: hidden !important;
             -webkit-print-color-adjust: exact !important; 
             print-color-adjust: exact !important;
             background: white !important; 
           }
           #roster-pdf-content { 
-            width: 100% !important; 
-            height: auto !important;
-            min-height: 100% !important;
+            width: 297mm !important; 
+            height: 210mm !important;
+            overflow: hidden !important;
             box-shadow: none !important; 
             margin: 0 !important;
-            padding: 5mm !important;
-            transform: scale(0.98) !important;
-            transform-origin: top center !important;
-            overflow: visible !important;
+            padding: 0 !important;
             display: flex !important;
             flex-direction: column !important;
           }
@@ -260,32 +361,65 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
           className="transition-transform duration-200 ease-out origin-top will-change-transform bg-white shadow-2xl"
         >
           {isExtra ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '5mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
-                <div className="flex flex-col min-h-full">
-                    <header className="flex justify-between items-start mb-4 h-16 relative w-full flex-shrink-0">
-                        {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="h-16 w-auto object-contain" alt="PMCE" />}<div className="flex-1"></div>
-                        {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="h-16 w-auto object-contain" alt="Gov" />}
+            <div id="roster-pdf-content" className={containerClass} style={{ padding: '3mm', fontFamily: appearance.fontFamily, backgroundColor: 'white', display: 'flex', flexDirection: 'column', height: '210mm' }}>
+                <div className="flex flex-col h-full border-2 border-black px-4 pb-2">
+                    <header className="relative flex items-center justify-center mb-1 border-b-2 border-black pb-1 min-h-16 w-full">
+                       {settings.showLogoLeft && settings.logoLeft && (
+                           <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-1/2 -translate-y-1/2 h-16 w-16 object-contain" alt="Logo Esq" />
+                       )}
+                       
+                       <div className="flex flex-col items-center justify-center w-full px-28 text-center">
+                         <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            className="w-full text-center font-black uppercase tracking-tight leading-none mb-0.5 bg-transparent border-none outline-none"
+                            style={{ fontSize: '16pt' }}
+                         >
+                            DIRETORIA DE SAUDE - PMCE
+                         </div>
+                         <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            className="w-full text-center font-bold uppercase leading-none mb-0.5 bg-transparent border-none outline-none"
+                            style={{ fontSize: '12pt' }}
+                         >
+                            ESCALA EXTRA
+                         </div>
+                       </div>
+
+                       {settings.showLogoRight && settings.logoRight && (
+                           <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-1/2 -translate-y-1/2 h-16 w-16 object-contain" alt="Logo Dir" />
+                       )}
                     </header>
-                    <div className="text-center mb-2 flex-shrink-0">
-                        <h1 className="text-[14pt] font-bold uppercase leading-tight">{roster.title}</h1>
+                    
+                    <div className="mb-2 w-full flex justify-center flex-shrink-0 text-center">
+                         <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            className="w-full text-center font-black uppercase outline-none bg-transparent border-none"
+                            style={{ fontSize: '14pt' }}
+                         >
+                            {roster.title}
+                         </div>
                     </div>
-                    <div className="mb-2 text-[9pt] text-left flex-shrink-0">
-                        <span className="font-bold">APRESENTAÇÃO:</span> <span className="uppercase">{roster.observations}</span>
+
+                    <div className="mb-2 text-left flex-shrink-0" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>
+                        <span className="font-bold uppercase">APRESENTAÇÃO:</span> <span className="leading-normal" style={textTransformStyle}>{roster.observations}</span>
                     </div>
-                    <div className="flex-1 relative">
-                        <table className="w-full border-collapse border border-black text-[11pt] table-auto">
+                    <div className="relative overflow-hidden">
+                        <table className="w-full border-collapse border-2 border-black table-auto" style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
                             <thead>
-                              <tr className="bg-[#e6e6e6]">
+                              <tr className="bg-[#cbd5b0]">
                                 {HEADERS.map((h, i) => (
-                                   <th key={i} className="border border-black p-1 text-center font-bold px-2">{h}</th>
+                                   <th key={i} className="border border-black p-1 text-center font-bold px-2" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{h}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
                               {extraRosterData.map((item, index) => (
-                                <tr key={item.soldier.id}>
+                                <tr key={`${item.soldier.id}-${index}`}>
                                   {HEADERS.map((header, colIndex) => (
-                                    <td key={colIndex} className="border border-black p-0.5 text-center">
+                                    <td key={colIndex} className="border border-black p-1 text-center">
                                       {header.includes('ORD') ? (
                                         <span className="font-bold">{(index + 1).toString().padStart(2, '0')}</span>
                                       ) : (
@@ -298,42 +432,50 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                             </tbody>
                         </table>
                     </div>
-                    <div className="text-right text-[10pt] mb-4 mt-2 font-bold flex-shrink-0">{settings.city}, {creationDateFormatted}</div>
-                    <div className="text-center mb-2 flex-shrink-0">
-                         <div className="w-1/3 mx-auto border-b border-black mb-1"></div>
-                         <p className="font-bold uppercase text-[9pt] leading-none">{settings.directorName} – {settings.directorRank}</p>
-                         <p className="uppercase text-[8pt] leading-none mt-1">{settings.directorRole}</p>
-                         <p className="uppercase text-[8pt] leading-none mt-1">{settings.directorMatricula}</p> 
+                    <div className="mt-2 pt-1">
+                        <div className="text-right mb-2 font-bold" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>{settings.city}, {creationDateFormatted}</div>
+                        <div className="text-center mb-1">
+                             <div className="w-1/3 mx-auto border-b-2 border-black mb-1"></div>
+                             <p className="font-bold uppercase leading-tight" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>{settings.directorName} – {settings.directorRank}</p>
+                             <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorRole}</p>
+                             <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorMatricula}</p> 
+                        </div>
                     </div>
                 </div>
             </div>
           ) : isGrid ? (
-            <div id="roster-pdf-content" className="w-[297mm] min-h-[210mm] bg-white" style={{ padding: '5mm 6mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
-               <div className="flex flex-col min-h-full">
-                  <header className="text-center mb-1 flex flex-col justify-center border-b border-black/20 pb-0.5 relative h-12 flex-shrink-0">
-                     {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-12 w-12 object-contain" alt="Logo Esq" />}
-                     <div className="mx-20">
-                       {/* TÍTULO DA ORGANIZAÇÃO (AGORA PERSONALIZÁVEL) */}
-                       <h1 className="text-[10pt] font-bold uppercase tracking-wide text-gray-800">
-                         {cleanHeaderTitle}
+            <div id="roster-pdf-content" className="w-[297mm] h-[210mm] bg-white overflow-hidden" style={{ padding: '3mm', fontFamily: appearance.fontFamily, backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+               <div className="flex flex-col h-full overflow-hidden">
+                  <header className="text-center mb-1 flex flex-col justify-center border-b-2 border-black pb-1 relative h-16 flex-shrink-0">
+                     {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-1 h-14 w-14 object-contain" alt="Logo Esq" />}
+                     <div className="mx-24">
+                       <h1 className="font-bold uppercase tracking-wide text-black" style={{ fontSize: getPrintFontSize('title', appearance.fontSize) }}>
+                         {cleanHeaderTitle || settings.orgName}
                        </h1>
-                       <h2 className="text-[12pt] font-black uppercase tracking-tight leading-tight">{roster.title}</h2>
-                       <div className="text-[8pt] font-bold uppercase">DO DIA {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
+                       <h2 className="font-black uppercase tracking-tight leading-tight" style={{ fontSize: getPrintFontSize('subtitle', appearance.fontSize) }}>{roster.title}</h2>
+                       <div className="font-bold uppercase" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>DO DIA {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
                      </div>
-                     {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-12 w-12 object-contain" alt="Logo Dir" />}
+                     {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-1 h-14 w-14 object-contain" alt="Logo Dir" />}
                   </header>
-                  <div className="flex-1 border border-black relative flex flex-col">
-                    <table className="w-full h-full border-collapse text-[7.5pt] table-fixed">
+                  <div className="flex-1 border-2 border-black relative flex flex-col overflow-hidden">
+                    <table className="w-full h-full border-collapse table-fixed" style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
                        <thead>
-                          <tr className="h-7">
-                             <th className="border border-black bg-[#cbd5b0] p-0.5 w-32"></th>
+                          <tr className="h-8">
+                             <th className="border border-black bg-[#cbd5b0] p-0.5 w-36"></th>
                              {dates.map(d => {
                                 const dStr = d.toISOString().split('T')[0];
                                 const isHoliday = roster.holidays?.includes(dStr);
+                                const isOptional = roster.optionalHolidays?.includes(dStr);
+                                
+                                let bgClass = 'bg-[#e4e9d6]';
+                                if (isHoliday) bgClass = 'bg-red-100';
+                                if (isOptional) bgClass = 'bg-blue-100';
+
                                 return (
-                                   <th key={d.toISOString()} className={`border border-black ${isHoliday ? 'bg-gray-200' : 'bg-[#e4e9d6]'} p-0.5 text-center uppercase`}>
-                                      <div className="font-bold text-[7pt]">{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]} {d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
-                                      {isHoliday && <div className="text-[5pt] font-black">FERIADO</div>}
+                                   <th key={d.toISOString()} className={`border border-black ${bgClass} p-0.5 text-center uppercase`}>
+                                      <div className="font-bold" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]} {d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
+                                      {isHoliday && <div className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-1 rounded shadow-sm leading-none" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>FERIADO</div>}
+                                      {isOptional && <div className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-1 rounded shadow-sm leading-none" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>FACULTATIVO</div>}
                                    </th>
                                 );
                              })}
@@ -342,7 +484,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                        <tbody>
                           {(roster.sections || []).flatMap(sec => sec.rows.map(row => ({ row, sec }))).map(({ row, sec }) => (
                              <tr key={row.id}>
-                                 <td className={`border border-black ${row.bgClass || sec.bgClass || 'bg-[#cbd5b0]'} p-1 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight text-[7.5pt]`}>
+                                 <td className={`border border-black ${row.bgClass || sec.bgClass || 'bg-[#cbd5b0]'} p-1 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
                                    {row.label}
                                 </td>
                                 {dates.map(d => {
@@ -350,18 +492,6 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                    const isHoliday = roster.holidays?.includes(dStr);
  
                                    const isOptional = roster.optionalHolidays?.includes(dStr);
- 
-                                   if (isHoliday || isOptional) {
-                                      return (
-                                         <td key={`${row.id}-${dStr}`} className={`border border-black p-0.5 align-middle text-center h-auto ${isHoliday ? 'bg-gray-100' : 'bg-blue-50'}`}>
-                                            <div className="flex flex-col space-y-1 h-full justify-center">
-                                                <span className={`text-[7pt] font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest`}>
-                                                   {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
-                                                </span>
-                                            </div>
-                                         </td>
-                                      );
-                                   }
  
                                    const shiftsInCell = roster.shifts
                                      .filter(s => s.date === dStr && s.period === row.id)
@@ -371,22 +501,48 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                         if (!sA || !sB) return 0;
                                         return getRankWeight(sA.rank) - getRankWeight(sB.rank);
                                      });
+
+                                   let cellBgClass = row.bgClass || '';
+                                   if (shiftsInCell.some(s => s.note === 'ANIV')) {
+                                      cellBgClass = 'bg-green-100';
+                                   } else if (isHoliday) {
+                                      cellBgClass = 'bg-red-50/50';
+                                   } else if (isOptional) {
+                                      cellBgClass = 'bg-blue-50/50';
+                                   }
+
                                    return (
-                                      <td key={`${row.id}-${dStr}`} className={`border border-black p-0.5 align-top text-center h-auto ${row.bgClass || ''}`}>
+                                      <td key={`${row.id}-${dStr}`} className={`border border-black p-0.5 ${shiftsInCell.length > 0 ? 'align-top' : 'align-middle'} text-center h-auto ${cellBgClass}`}>
+                                         {(isHoliday || isOptional) && (
+                                            <div className={`flex flex-col space-y-1 justify-center ${shiftsInCell.length > 0 ? 'mb-0.5' : ''}`}>
+                                                <span className={`font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                                   {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
+                                                </span>
+                                            </div>
+                                         )}
                                          <div className="flex flex-col space-y-0.5">
-                                            {shiftsInCell.length > 0 ? shiftsInCell.map((shift, i) => {
+                                             {shiftsInCell.length > 0 ? shiftsInCell.map((shift, i) => {
+                                               if (shift.isHidden) return null;
                                                const sdr = allSoldiers.find(s => s.id === shift.soldierId);
                                                // IMPRESSÃO GRADE (ADM/AST/CUSTOM): Só mostra a nota preenchida na lacuna
                                                const legend = shift.note || '';
                                                return sdr ? (
-                                                  <div key={i} className="text-[7pt] font-bold uppercase leading-tight">
-                                                     <div>{getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort} {legend && <span className="ml-0.5 text-blue-800 font-black">{legend}</span>}</div>
+                                                  <div key={i} className="font-bold leading-tight" style={{ fontSize: getPrintFontSize('name', appearance.fontSize), ...textTransformStyle }}>
+                                                     <div>{getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort} {legend && (
+                                                        <span className={`ml-0.5 font-black ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : 'text-blue-800'}`}>
+                                                          {legend.trim().toUpperCase().startsWith('ANIV') 
+                                                            ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`
+                                                            : legend}
+                                                        </span>
+                                                      )}</div>
                                                      {!row.hidePhone && !roster.hidePhone && sdr.phone && (
-                                                        <div className="text-[7pt] text-gray-600 font-bold leading-none mt-0.5">{sdr.phone}</div>
+                                                        <div className="text-gray-600 font-bold leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('phone', appearance.fontSize) }}>{sdr.phone}</div>
                                                      )}
                                                   </div>
                                                ) : null;
-                                            }) : <span className="text-[6pt] text-gray-300 font-bold">***</span>}
+                                            }) : (
+                                               !(isHoliday || isOptional) && <span className="text-gray-300 font-bold" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>***</span>
+                                            )}
                                          </div>
                                       </td>
                                    );
@@ -396,53 +552,52 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                        </tbody>
                     </table>
                   </div>
-                  <div className="mt-2 text-[8pt] relative flex-shrink-0">
-                     <div className="flex w-full mb-1 border border-black p-1 bg-white">
-                         <div className="w-1/2 pr-1 border-r border-black">
-                             <span className="font-bold uppercase block text-[7pt] mb-0.5">OBSERVAÇÕES:</span> 
-                             <div className="uppercase leading-tight">{roster.observations}</div>
+                  <div className="mt-auto pt-2 relative flex-shrink-0" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>
+                     <div className="flex w-full mb-1 border-2 border-black p-1 bg-white">
+                         <div className="w-1/2 pr-2 border-r-2 border-black">
+                             <div className="font-bold uppercase block mb-0.5" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>OBSERVAÇÕES:</div> 
+                             <div className="leading-tight">{roster.observations}</div>
                          </div>
-                         <div className="w-1/2 pl-1">
-                             <span className="font-bold uppercase block text-[7pt] mb-0.5">ALTERAÇÕES:</span>
-                             <div className="uppercase leading-tight">{roster.situationText || 'Sem alterações.'}</div>
+                         <div className="w-1/2 pl-2">
+                             <div className="font-bold uppercase block mb-0.5" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>ALTERAÇÕES:</div>
+                             <div className="leading-tight">{roster.situationText || 'Sem alterações.'}</div>
                          </div>
                      </div>
                      <div className="text-right font-bold mt-1">{settings.city}, {creationDateFormatted}</div>
-                     <div className="text-center w-1/3 mx-auto mt-2">
-                        <div className="w-full border-b border-black mb-0.5"></div>
-                        <p className="font-bold uppercase text-[8pt] leading-none">{settings.directorName} – {settings.directorRank}</p>
-                        <p className="uppercase text-[7pt] leading-none mt-1">{settings.directorRole}</p>
-                        <p className="uppercase text-[7pt] leading-none mt-1">{settings.directorMatricula}</p> 
+                     <div className="text-center w-1/3 mx-auto mt-1">
+                        <div className="w-full border-b-2 border-black mb-1"></div>
+                        <p className="font-bold uppercase leading-tight" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>{settings.directorName} – {settings.directorRank}</p>
+                        <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorRole}</p>
+                        <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorMatricula}</p> 
                      </div>
                   </div>
                </div>
             </div>
           ) : (
-            <div id="roster-pdf-content" className="w-[297mm] min-h-[210mm] bg-white" style={{ padding: '6mm 6mm 4mm 6mm', fontFamily: 'Arial, Helvetica, sans-serif', backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
-                <div className="flex flex-col h-auto">
-                    <header className="text-center mb-1 relative h-16 flex items-center justify-center flex-shrink-0 border-b border-black/10 pb-0.5">
-                       {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0 h-16 w-16 object-contain" alt="Logo Esq" />}
-                       <div className="mx-20 w-full">
-                         {/* TÍTULO EDITÁVEL DA ORGANIZAÇÃO (AMBULÂNCIA/PSICOLOGIA) */}
-                         <h1 className="text-[8.5pt] font-bold uppercase tracking-tight leading-none mb-0.5">
-                            {cleanHeaderTitle}
+            <div id="roster-pdf-content" className={`w-[297mm] ${roster.type === 'cat_odo' ? 'h-[210mm] overflow-hidden' : 'min-h-[210mm]'} bg-white`} style={{ padding: '0', fontFamily: appearance.fontFamily, backgroundColor: 'white', display: 'flex', flexDirection: 'column' }}>
+                <div className={`flex flex-col h-auto ${roster.type === 'cat_odo' ? 'p-1' : 'p-2'} origin-top`}>
+                    <header className={`text-center ${roster.type === 'cat_odo' ? 'mb-0.5 min-h-10' : 'mb-1 min-h-12'} relative flex flex-col items-center justify-center flex-shrink-0 border-b-2 border-black pb-1`}>
+                       {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-1 h-12 w-12 object-contain" alt="Logo Esq" />}
+                       <div className="mx-24 w-full">
+                         <h1 className="font-bold uppercase tracking-tight leading-none mb-0.5 text-black" style={{ fontSize: getPrintFontSize('title', appearance.fontSize) }}>
+                            {cleanHeaderTitle || settings.orgName || settings.institutionName}
                          </h1>
-                         <h2 className="text-[10.5pt] font-black uppercase leading-none mb-0.5">{roster.title}</h2>
-                         <div className="text-[7.5pt] font-bold uppercase text-black leading-tight">
+                         <h2 className="font-black uppercase leading-none mb-0.5 text-black" style={{ fontSize: getPrintFontSize('subtitle', appearance.fontSize) }}>{roster.title}</h2>
+                         <div className="font-bold uppercase text-black leading-none" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>
                              PERÍODO: {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}
                           </div>
                        </div>
-                       {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-16 w-16 object-contain" alt="Logo Dir" />}
+                       {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-1 h-12 w-12 object-contain" alt="Logo Dir" />}
                     </header>
                     {roster.subTitle && (
-                        <div className="bg-[#cbd5b0] border border-black border-b-0 p-0.5 text-center font-bold text-[6.5pt] uppercase mb-0 flex-shrink-0">
+                        <div className="bg-[#cbd5b0] border-2 border-black border-b-0 p-1 text-center font-bold uppercase mb-0 flex-shrink-0" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>
                             {roster.subTitle}
                         </div>
                     )}
-                    <div className="border border-black relative flex flex-col">
-                       <table className="w-full table-fixed border-collapse">
+                    <div className="border-2 border-black relative flex flex-col px-1 flex-grow">
+                       <table className={`w-full h-auto table-fixed border-collapse`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
                           <thead>
-                            <tr className="h-5">
+                            <tr className={roster.type === 'cat_ast' ? 'h-auto' : 'h-6'}>
                                {dates.map((d) => {
                                   const dStr = d.toISOString().split('T')[0];
                                   const isAmbulancia = roster.type === 'cat_amb';
@@ -450,20 +605,20 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                   const isOptional = !isAmbulancia && roster.optionalHolidays?.includes(dStr);
                                   
                                   let bgClass = 'bg-[#e4e9d6]';
-                                  if (isHoliday) bgClass = 'bg-gray-200';
-                                  if (isOptional) bgClass = 'bg-gray-100';
+                                  if (isHoliday) bgClass = 'bg-red-100';
+                                  if (isOptional) bgClass = 'bg-blue-100';
 
                                   return (
-                                     <th key={d.toISOString()} className={`${bgClass} border border-black p-0 text-center`} style={{ width: `${100 / dates.length}%` }}>
-                                        <div className="font-black text-[6.5pt] uppercase leading-none">{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]}</div>
-                                        <div className="text-[5.5pt] font-bold leading-none mt-0.5">{d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
+                                     <th key={d.toISOString()} className={`${bgClass} border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : (roster.type === 'cat_odo' ? 'p-0.5' : 'p-1')} text-center`} style={{ width: `${100 / dates.length}%` }}>
+                                        <div className={`font-black uppercase ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'}`} style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]}</div>
+                                        <div className={`font-bold ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} mt-0.5`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
                                         {isHoliday && (
-                                           <div className="mt-0.5 bg-gray-800 text-white text-[5pt] font-black py-0.5 px-0.5 rounded leading-none">
+                                           <div className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
                                               FERIADO
                                            </div>
                                         )}
                                         {isOptional && (
-                                           <div className="mt-0.5 bg-gray-600 text-white text-[5pt] font-black py-0.5 px-0.5 rounded leading-none">
+                                           <div className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
                                               FACULTATIVO
                                            </div>
                                         )}
@@ -475,8 +630,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                           <tbody>
                              {(roster.sections || []).map((sec, sIdx) => (
                                 <React.Fragment key={sIdx}>
-                                   <tr className={`h-3.5 ${sec.bgClass || 'bg-[#cbd5b0]'}`}>
-                                      <td colSpan={dates.length} className="border border-black p-0 text-center font-bold text-[6.5pt] uppercase tracking-wide leading-none align-middle">
+                                   <tr className={`${roster.type === 'cat_ast' ? 'h-auto' : 'h-7'} ${sec.bgClass || 'bg-[#cbd5b0]'}`}>
+                                      <td colSpan={dates.length} className={`border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : (roster.type === 'cat_odo' ? 'p-0.5' : 'p-1')} text-center font-bold uppercase tracking-wide ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} align-middle`} style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>
                                          {sec.title}
                                       </td>
                                    </tr>
@@ -491,20 +646,6 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                             
                                             if (isMerged && rIdx > 0) return null;
 
-                                            if (isHoliday || isOptional) {
-                                                return (
-                                                  <td 
-                                                    key={`${row.id}-${dStr}`} 
-                                                    rowSpan={isMerged ? sec.rows.length : 1}
-                                                    className={`border border-black p-0 text-center align-middle h-auto ${isHoliday ? 'bg-red-50' : 'bg-blue-50'}`}
-                                                  >
-                                                     <span className={`text-[6.5pt] font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest`}>
-                                                        {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
-                                                     </span>
-                                                  </td>
-                                                );
-                                            }
-
                                             const cellPeriodId = isMerged ? sec.rows[0].id : row.id;
                                             const shiftsInCell = roster.shifts
                                               .filter(s => s.date === dStr && s.period === cellPeriodId)
@@ -515,30 +656,51 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                                  return getRankWeight(sA.rank) - getRankWeight(sB.rank);
                                               });
                                             
+                                            let cellBgClass = row.bgClass || sec.bgClass || '';
+                                            if (shiftsInCell.some(s => s.note === 'ANIV')) {
+                                               cellBgClass = 'bg-green-100';
+                                            } else if (isHoliday) {
+                                               cellBgClass = 'bg-red-50/50';
+                                            } else if (isOptional) {
+                                               cellBgClass = 'bg-blue-50/50';
+                                            }
+
                                             return (
                                               <td 
                                                 key={`${row.id}-${dStr}`} 
                                                 rowSpan={isMerged ? sec.rows.length : 1}
-                                                className={`border border-black p-0 text-center ${roster.type === 'cat_odo' ? 'align-top' : 'align-middle'} h-auto ${row.bgClass || sec.bgClass || ''}`}
+                                                className={`border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : (roster.type === 'cat_odo' ? 'p-0.5' : 'p-1')} text-center ${(roster.type === 'cat_odo' || roster.type === 'cat_ast') ? 'align-top' : 'align-middle'} h-auto ${cellBgClass}`}
                                               >
-                                                 <div className={`flex flex-col items-center ${roster.type === 'cat_odo' ? 'justify-start pt-0.5' : 'justify-center'} w-full h-full leading-none px-0.5 py-0.5`}>
+                                                 <div className={`flex flex-col items-center ${(roster.type === 'cat_odo' || roster.type === 'cat_ast') ? 'justify-start pt-0.5' : 'justify-center'} w-full h-auto ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} px-0.5 ${(roster.type === 'cat_ast' || roster.type === 'cat_odo') ? 'py-0.5' : 'py-0.5'}`}>
+                                                    {(isHoliday || isOptional) && (
+                                                       <span className={`font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest ${shiftsInCell.length > 0 ? 'mb-0.5' : ''}`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                                          {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
+                                                       </span>
+                                                    )}
                                                     {shiftsInCell.length > 0 ? shiftsInCell.map((shift, i) => {
+                                                       if (shift.isHidden) return null;
                                                        const sdr = allSoldiers.find(s => s.id === shift.soldierId);
                                                        const legend = shift?.note || '';
                                                        return sdr ? (
-                                                          <div key={i} className="flex flex-col items-center justify-center w-full leading-none mb-0.5 last:mb-0">
-                                                             <div className="text-[7.5pt] font-bold uppercase text-center w-full break-words tracking-tight leading-tight">
-                                                                {getAbbreviatedRank(sdr.rank)} {sdr.matricula || ''} {sdr.name.split(' ')[0]} {sdr.roleShort}
+                                                          <div key={i} className={`flex flex-col items-center justify-center w-full ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} ${roster.type === 'cat_ast' ? 'mb-1' : 'mb-0.5'} last:mb-0`}>
+                                                             <div className={`font-bold text-center w-full break-words tracking-tight ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'}`} style={{ fontSize: getPrintFontSize('name', appearance.fontSize), ...textTransformStyle }}>
+                                                                {getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort}
                                                              </div>
                                                              {!roster.hidePhone && (settings.showPhoneInPrint || sdr.phone) && sdr.phone && (
-                                                                <div className="text-[7.5pt] text-gray-600 font-bold mt-0.5 leading-tight">{sdr.phone || '-'}</div>
+                                                                <div className={`text-gray-600 font-bold ${roster.type === 'cat_ast' ? 'mt-0 leading-snug' : 'mt-0.5 leading-tight'}`} style={{ fontSize: getPrintFontSize('phone', appearance.fontSize) }}>{sdr.phone || '-'}</div>
                                                              )}
                                                              {legend && (
-                                                                <div className="text-[6.5pt] font-black text-blue-800 mt-0.5 scale-90 leading-tight">{legend}</div>
+                                                                <div className={`font-black ${roster.type === 'cat_ast' ? 'mt-0 leading-snug' : 'mt-0.5 leading-tight'} ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : 'text-blue-800'}`} style={{ fontSize: `calc(${getPrintFontSize('phone', appearance.fontSize)} * 0.9)` }}>
+                                                                   {legend.trim().toUpperCase().startsWith('ANIV') 
+                                                                     ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`
+                                                                     : legend}
+                                                                </div>
                                                              )}
                                                           </div>
                                                        ) : null;
-                                                    }) : <span className="text-[5.5pt] text-gray-300">-</span>}
+                                                    }) : (
+                                                       !(isHoliday || isOptional) && <span className="text-gray-300" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>-</span>
+                                                    )}
                                                  </div>
                                               </td>
                                             );
@@ -550,30 +712,30 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                           </tbody>
                        </table>
                     </div>
-                    <div className="mt-0.5 flex flex-col justify-end h-auto flex-shrink-0">
-                         <div className="flex w-full mb-0.5 border-b border-black/10 pb-0.5">
-                             <div className="w-1/2 pr-1 border-r border-black/10">
-                                 <div className="text-[5.5pt] leading-tight">
-                                    <span className="font-bold uppercase block text-[5.5pt] text-gray-500 mb-0.5">{roster.observationsTitle || 'OBS'}:</span> 
-                                    {roster.observations}
+                    <div className={`mt-auto ${roster.type === 'cat_odo' ? 'pt-1' : 'pt-2'} flex flex-col justify-end h-auto flex-shrink-0`}>
+                         <div className="flex w-full mb-0 border-b-2 border-black pb-1">
+                             <div className="w-1/2 pr-1 border-r-2 border-black">
+                                 <div className="leading-tight pb-1" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                    <div className="font-bold uppercase block text-black mb-0" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{roster.observationsTitle || 'OBS'}:</div> 
+                                    <div style={textTransformStyle}>{roster.observations}</div>
                                  </div>
                              </div>
                              <div className="w-1/2 pl-1">
-                                 <div className="text-[5.5pt] leading-tight">
-                                    <span className="font-bold uppercase block text-[5.5pt] text-gray-500 mb-0.5">ALTERAÇÕES:</span>
-                                    {roster.situationText || 'Sem alterações.'}
+                                 <div className="leading-tight pb-1" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                    <div className="font-bold uppercase block text-black mb-0" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>ALTERAÇÕES:</div>
+                                    <div style={textTransformStyle}>{roster.situationText || 'Sem alterações.'}</div>
                                  </div>
                              </div>
                          </div>
-                        <div className="relative mt-0.5">
-                            <div className="absolute right-0 top-0 text-[6.5pt] font-bold">
+                        <div className="mt-1">
+                            <div className="text-right font-bold" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
                                 {settings.city}, {creationDateFormatted}
                             </div>
-                            <div className="text-center w-1/3 mx-auto mt-1">
-                                <div className="w-full border-b border-black mb-0.5"></div>
-                                <p className="font-bold uppercase text-[6.5pt] leading-none">{settings.directorName} – {settings.directorRank}</p>
-                                <p className="uppercase text-[6.5pt] leading-none mt-0.5">{settings.directorRole}</p>
-                                <p className="uppercase text-[6.5pt] leading-none mt-0.5">{settings.directorMatricula}</p> 
+                            <div className={`text-center w-1/3 mx-auto ${roster.type === 'cat_odo' ? 'mt-0.5 pb-0.5' : 'mt-1 pb-1'}`}>
+                                <div className="w-full border-b-2 border-black mb-1"></div>
+                                <p className="font-bold uppercase leading-tight" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorName} – {settings.directorRank}</p>
+                                <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorRole}</p>
+                                <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>Matr.: {settings.directorMatricula}</p> 
                             </div>
                         </div>
                     </div>
