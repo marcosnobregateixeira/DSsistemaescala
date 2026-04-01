@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/store';
-import { getBrazilianHolidays, getHolidayName, getRankWeight } from '../utils';
+import { getBrazilianHolidays, getHolidayName, getRankWeight, getAbbreviatedRank } from '../utils';
 import { Roster, RosterSection, Soldier, Rank, Status, Shift, BankTransaction } from '../types';
 import * as Icons from 'lucide-react';
 import { 
@@ -11,27 +11,6 @@ import {
   Columns, Zap, Sparkles, Eye, EyeOff
 } from 'lucide-react';
 import { PrintPreview } from '../components/pdf/PrintPreview';
-
-const getAbbreviatedRank = (rank: string) => {
-  const map: Record<string, string> = {
-    [Rank.CEL]: 'Cel', 
-    [Rank.TEN_CEL]: 'TC', 
-    [Rank.MAJ]: 'Maj', 
-    [Rank.CAP]: 'Cap', 
-    [Rank.TEN_1]: '1ºTen', 
-    [Rank.TEN_2]: '2ºTen',
-    [Rank.ASP]: 'Asp', 
-    [Rank.AL_OF]: 'Al Of',
-    [Rank.SUBTEN]: 'ST', 
-    [Rank.SGT_1]: '1ºSgt', 
-    [Rank.SGT_2]: '2ºSgt', 
-    [Rank.SGT_3]: '3ºSgt', 
-    [Rank.CB]: 'Cb', 
-    [Rank.SD]: 'Sd', 
-    [Rank.CIVIL]: 'Civ'
-  };
-  return map[rank] || rank;
-};
 
 const ColorPalette = ({ onSelect, current, onClose }: { onSelect: (color: string) => void, current?: string, onClose: () => void }) => {
   const colors = [
@@ -107,6 +86,33 @@ export const RosterManager: React.FC = () => {
   const [editingLegendId, setEditingLegendId] = useState<string | null>(null); // Shift ID para edição de legenda
 
   const isAdmin = db.getCurrentUser().role === 'ADMIN';
+
+  const appearance = settings.appearance || { fontFamily: 'Inter', fontSize: 'medium', textCase: 'uppercase' };
+
+  const getFontSizeClass = (size: string) => {
+      switch(size) {
+          case 'small': return 'text-[7pt]';
+          case 'large': return 'text-[11pt]';
+          default: return 'text-[9pt]';
+      }
+  };
+
+  const getSmallFontSizeClass = (size: string) => {
+      switch(size) {
+          case 'small': return 'text-[6pt]';
+          case 'large': return 'text-[9pt]';
+          default: return 'text-[7pt]';
+      }
+  };
+
+  const getTextCaseClass = (c: string) => {
+      switch(c) {
+          case 'lowercase': return 'lowercase';
+          case 'capitalize': return 'capitalize';
+          case 'normal': return 'normal-case';
+          default: return 'uppercase';
+      }
+  };
 
   useEffect(() => { loadData(); }, []);
   const loadData = () => {
@@ -224,7 +230,8 @@ export const RosterManager: React.FC = () => {
     if (!settings.shiftCycleRefDate) return 0;
     const refDate = new Date(settings.shiftCycleRefDate + 'T12:00:00');
     const targetDate = new Date(dateObj.toISOString().split('T')[0] + 'T12:00:00');
-    const diffDays = Math.floor((targetDate.getTime() - refDate.getTime()) / (1000 * 60 * 60 * 24));
+    const diffTime = targetDate.getTime() - refDate.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
     return ((diffDays % 4) + 4) % 4; // 0, 1, 2, 3
   };
 
@@ -323,8 +330,19 @@ export const RosterManager: React.FC = () => {
                         soldierIds.forEach(sId => {
                             const soldier = soldiers.find(s => s.id === sId);
                             if (soldier && soldier.status === Status.ATIVO) {
-                                generatedShifts.push({ date: dateStr, period: row.id, soldierId: soldier.id });
-                                hasProjectedData = true;
+                                // --- CORREÇÃO: Filtrar projeção pelo vínculo de equipe do militar ---
+                                const is24hRow = sec.title.toUpperCase().includes('24H') || sec.title.toUpperCase().includes('BLOCO #1');
+                                const is2x2Row = sec.title.toUpperCase().includes('2X2') || sec.title.toUpperCase().includes('BLOCO #2');
+                                
+                                let canAssign = true;
+                                if (is24hRow && soldier.team !== cycle.team24.name) canAssign = false;
+                                // Para 2x2, permitimos independência da turma exata, pois policiais podem ter offsets no ciclo
+                                if (is2x2Row && !soldier.team?.toUpperCase().includes('TURMA')) canAssign = false;
+
+                                if (canAssign) {
+                                    generatedShifts.push({ date: dateStr, period: row.id, soldierId: soldier.id });
+                                    hasProjectedData = true;
+                                }
                             }
                         });
                     }
@@ -681,17 +699,77 @@ export const RosterManager: React.FC = () => {
   const removeShiftFromCell = (shift: any) => {
     if (!selectedRoster) return;
     const newShifts = selectedRoster.shifts.filter(s => s !== shift);
+    
+    // Remove ANIV text if the removed shift had it
+    let newSituationText = selectedRoster.situationText || '';
+    if (shift.note && shift.note.trim().toUpperCase().startsWith('ANIV')) {
+        const soldier = soldiers.find(s => s.id === shift.soldierId);
+        if (soldier) {
+            const rank = getAbbreviatedRank(soldier.rank).toUpperCase();
+            const name = soldier.name.toUpperCase();
+            const bDay = soldier.birthday ? new Date(soldier.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00');
+            const day = String(bDay.getDate()).padStart(2, '0');
+            const month = String(bDay.getMonth() + 1).padStart(2, '0');
+            const shiftDate = `${day}/${month}`;
+            const specificLegend = `ANIV(${shiftDate}) - ${rank} ${name} - Dispensado do serviço em virtude de seu aniversário.`;
+            
+            if (newSituationText.includes(specificLegend)) {
+                newSituationText = newSituationText.split('\n').filter(line => line.trim() !== specificLegend).join('\n');
+            }
+        }
+    }
+
+    updateRoster({ ...selectedRoster, shifts: newShifts, situationText: newSituationText });
+  };
+
+  const toggleShiftVisibility = (shiftToUpdate: Shift) => {
+    if (!selectedRoster) return;
+    const newShifts = selectedRoster.shifts.map(s => 
+      (s.date === shiftToUpdate.date && s.period === shiftToUpdate.period && s.soldierId === shiftToUpdate.soldierId)
+      ? { ...s, isHidden: !s.isHidden }
+      : s
+    );
     updateRoster({ ...selectedRoster, shifts: newShifts });
   };
 
   const updateShiftNote = (shiftToUpdate: Shift, newNote: string) => {
     if (!selectedRoster) return;
+    const upperNote = newNote.trim().toUpperCase();
     const newShifts = selectedRoster.shifts.map(s => 
       (s.date === shiftToUpdate.date && s.period === shiftToUpdate.period && s.soldierId === shiftToUpdate.soldierId)
-      ? { ...s, note: newNote.toUpperCase() }
+      ? { ...s, note: upperNote }
       : s
     );
-    updateRoster({ ...selectedRoster, shifts: newShifts });
+    
+    let newSituationText = selectedRoster.situationText || '';
+    const soldier = soldiers.find(s => s.id === shiftToUpdate.soldierId);
+
+    if (soldier) {
+        const rank = getAbbreviatedRank(soldier.rank).toUpperCase();
+        const name = soldier.name.toUpperCase();
+        const bDay = soldier.birthday ? new Date(soldier.birthday + 'T12:00:00') : new Date(shiftToUpdate.date + 'T12:00:00');
+        const day = String(bDay.getDate()).padStart(2, '0');
+        const month = String(bDay.getMonth() + 1).padStart(2, '0');
+        const shiftDate = `${day}/${month}`;
+        const specificLegend = `ANIV(${shiftDate}) - ${rank} ${name} - Dispensado do serviço em virtude de seu aniversário.`;
+
+        const isAniv = upperNote.startsWith('ANIV');
+
+        if (isAniv) {
+            if (!newSituationText.includes(specificLegend)) {
+                if (newSituationText && !newSituationText.endsWith('\n')) {
+                    newSituationText += '\n';
+                }
+                newSituationText += specificLegend;
+            }
+        } else {
+            if (newSituationText.includes(specificLegend)) {
+                newSituationText = newSituationText.split('\n').filter(line => line.trim() !== specificLegend).join('\n');
+            }
+        }
+    }
+    
+    updateRoster({ ...selectedRoster, shifts: newShifts, situationText: newSituationText });
     setEditingLegendId(null);
   };
 
@@ -844,21 +922,30 @@ export const RosterManager: React.FC = () => {
   const handleAutoSituation = () => {
     if (!selectedRoster) return;
     
-    // Filtra apenas militares que não estão ativos E que pertencem ao setor da escala atual
+    // 1. Filtra apenas militares que não estão ativos E que pertencem ao setor da escala atual
     const notActiveSoldiers = soldiers.filter(s => {
       if (s.status === Status.ATIVO) return false;
       
-      const soldierSector = s.sector?.toLowerCase() || '';
-      const categoryName = activeCategory.name.toLowerCase();
+      const soldierSector = (s.sector || '').trim().toLowerCase();
       
-      // Verifica igualdade ou inclusão para maior flexibilidade (ex: "Odontologia" vs "Odontologia Clínica")
-      return soldierSector === categoryName || 
-             soldierSector.includes(categoryName) || 
-             categoryName.includes(soldierSector);
+      // Garante que usa a categoria da escala atual (selectedRoster) em vez da aba ativa, para segurança
+      const currentCategory = settings.rosterCategories.find(c => c.id === selectedRoster.type) || activeCategory;
+      const categoryName = (currentCategory.name || '').trim().toLowerCase();
+      
+      if (!soldierSector) return false;
+      
+      // Verifica igualdade ou se o setor do militar contém o nome da categoria (ex: "Assistencial Manhã" contém "Assistencial")
+      // REMOVIDO: categoryName.includes(soldierSector) -> Causava falsos positivos com setores vazios ou substrings curtas
+      return soldierSector === categoryName || soldierSector.includes(categoryName);
     });
+
+    // 2. Militares com ANIV na escala atual (independente de setor)
+    const anivShifts = selectedRoster.shifts.filter(s => s.note && s.note.startsWith('ANIV'));
+    const anivSoldierIds = Array.from(new Set(anivShifts.map(s => s.soldierId)));
+    const anivSoldiers = soldiers.filter(s => anivSoldierIds.includes(s.id));
     
-    if (notActiveSoldiers.length === 0) {
-      alert(`Nenhum militar do setor "${activeCategory.name}" com status de afastamento ou alteração encontrado.`);
+    if (notActiveSoldiers.length === 0 && anivSoldiers.length === 0) {
+      alert(`Nenhum militar do setor "${activeCategory.name}" com status de afastamento ou militares com aniversário (ANIV) encontrados.`);
       return;
     }
 
@@ -875,23 +962,41 @@ export const RosterManager: React.FC = () => {
         return `${day}/${month}`;
     };
 
-    const textLines = notActiveSoldiers.map(s => {
-      let statusText = s.status.toString().toUpperCase();
+    const lines: string[] = [];
 
+    // Adiciona os afastados
+    notActiveSoldiers.forEach(s => {
+      const soldierInfo = `${getAbbreviatedRank(s.rank)} ${s.name}`.toUpperCase();
+      let statusDescription = s.status.toString();
       if (s.absenceStartDate && s.absenceEndDate) {
         const d1 = formatDate(s.absenceStartDate);
         const d2 = formatDate(s.absenceEndDate);
-        statusText += ` DE ${d1} A ${d2}`;
+        statusDescription += ` de ${d1} a ${d2}`;
       }
-
       if (s.status === Status.FOLGA && s.folgaReason) {
-         statusText += ` - ${s.folgaReason.toUpperCase()}`;
+         statusDescription += ` - ${s.folgaReason}`;
       }
-
-      return `${getAbbreviatedRank(s.rank)} ${s.name} (${statusText})`;
+      lines.push(`${soldierInfo} (${statusDescription})`);
     });
 
-    const newText = textLines.join(', ');
+    // Adiciona os ANIVs
+    anivShifts.forEach(shift => {
+      const s = soldiers.find(soldier => soldier.id === shift.soldierId);
+      if (s) {
+          const rank = getAbbreviatedRank(s.rank).toUpperCase();
+          const name = s.name.toUpperCase();
+          const bDay = s.birthday ? new Date(s.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00');
+          const day = String(bDay.getDate()).padStart(2, '0');
+          const month = String(bDay.getMonth() + 1).padStart(2, '0');
+          const shiftDate = `${day}/${month}`;
+          const specificLegend = `ANIV(${shiftDate}) - ${rank} ${name} - Dispensado do serviço em virtude de seu aniversário.`;
+          if (!lines.includes(specificLegend)) {
+              lines.push(specificLegend);
+          }
+      }
+    });
+
+    const newText = lines.join('\n');
     updateRoster({...selectedRoster, situationText: newText});
   };
 
@@ -1187,10 +1292,33 @@ export const RosterManager: React.FC = () => {
                      <input 
                        readOnly={!isAdmin}
                        className={`w-full text-center text-[12pt] font-black uppercase tracking-tight leading-tight outline-none text-black ${isAdmin ? 'hover:bg-gray-50 focus:bg-yellow-50' : 'pointer-events-none'}`}
-                       value={selectedRoster.title}
-                       onChange={e => updateRoster({...selectedRoster, title: e.target.value.toUpperCase()})}
-                     />
-                     <div className="text-[9pt] font-bold uppercase text-black">DO DIA {new Date(selectedRoster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(selectedRoster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
+                        value={selectedRoster.title}
+                        onChange={e => updateRoster({...selectedRoster, title: e.target.value.toUpperCase()})}
+                      />
+                      <div className="text-[9pt] font-bold uppercase text-black flex items-center justify-center space-x-1 group">
+                          <span>DO DIA</span>
+                          <div className="relative flex items-center">
+                            <input 
+                              readOnly={!isAdmin}
+                              type="date" 
+                              className={`bg-transparent font-bold outline-none text-center w-28 text-black ${isAdmin ? 'hover:bg-gray-100 cursor-pointer' : 'pointer-events-none'}`}
+                              value={selectedRoster.startDate}
+                              onChange={e => updateRoster({...selectedRoster, startDate: e.target.value})}
+                            />
+                            {isAdmin && <Calendar size={10} className="absolute right-0 text-gray-400 pointer-events-none opacity-0 group-hover:opacity-100" />}
+                          </div>
+                          <span>A</span>
+                          <div className="relative flex items-center">
+                            <input 
+                              readOnly={!isAdmin}
+                              type="date" 
+                              className={`bg-transparent font-bold outline-none text-center w-28 text-black ${isAdmin ? 'hover:bg-gray-100 cursor-pointer' : 'pointer-events-none'}`}
+                              value={selectedRoster.endDate}
+                              onChange={e => updateRoster({...selectedRoster, endDate: e.target.value})}
+                            />
+                            {isAdmin && <Calendar size={10} className="absolute right-0 text-gray-400 pointer-events-none opacity-0 group-hover:opacity-100" />}
+                          </div>
+                       </div>
                    </div>
                    {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-0 h-12 w-12 object-contain" alt="Logo Dir" />}
                 </header>
@@ -1344,18 +1472,6 @@ export const RosterManager: React.FC = () => {
                                        const isHoliday = !isAmbulancia && selectedRoster.holidays?.includes(dStr);
                                        const isOptional = !isAmbulancia && selectedRoster.optionalHolidays?.includes(dStr);
 
-                                       if (isHoliday || isOptional) {
-                                          return (
-                                             <td key={`${row.id}-${dStr}`} className={`border border-black p-1 align-middle text-center ${isHoliday ? 'bg-red-50/50' : 'bg-blue-50/50'}`}>
-                                                <div className="w-full h-full flex items-center justify-center min-h-[30px]">
-                                                    <span className={`text-[7pt] font-black select-none tracking-widest ${isHoliday ? 'text-red-300' : 'text-blue-300'}`}>
-                                                        {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
-                                                    </span>
-                                                </div>
-                                             </td>
-                                          );
-                                       }
-
                                        const shiftsInCell = selectedRoster.shifts
                                          .filter(s => s.date === dStr && s.period === row.id)
                                          .sort((a, b) => {
@@ -1365,20 +1481,40 @@ export const RosterManager: React.FC = () => {
                                             return getRankWeight(sA.rank) - getRankWeight(sB.rank);
                                          });
                                        
+                                       let cellBgClass = row.bgClass || '';
+                                       if (shiftsInCell.some(s => s.note === 'ANIV')) {
+                                          cellBgClass = 'bg-green-100';
+                                       } else if (isHoliday) {
+                                          cellBgClass = 'bg-red-50/50';
+                                       } else if (isOptional) {
+                                          cellBgClass = 'bg-blue-50/50';
+                                       }
+
                                        return (
-                                          <td key={`${row.id}-${dStr}`} className={`border border-black p-1 align-top text-center relative group ${isAdmin ? 'hover:bg-gray-50' : ''} ${row.bgClass || ''}`}>
-                                             <div className="flex flex-col space-y-1 min-h-[30px]">
+                                          <td key={`${row.id}-${dStr}`} className={`border border-black p-1 ${shiftsInCell.length > 0 ? 'align-top' : 'align-middle'} text-center relative group ${isAdmin ? 'hover:bg-gray-50' : ''} ${cellBgClass}`}>
+                                             {(isHoliday || isOptional) && (
+                                                <div className={`text-[6pt] font-black select-none tracking-widest ${shiftsInCell.length > 0 ? 'mb-1' : ''} ${isHoliday ? 'text-red-600' : 'text-blue-600'}`}>
+                                                    {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
+                                                </div>
+                                             )}
+                                             <div className={`flex flex-col space-y-1 ${shiftsInCell.length > 0 ? 'min-h-[30px]' : ''}`}>
                                                 {shiftsInCell.map((shift, i) => {
                                                    const sdr = soldiers.find(s => s.id === shift.soldierId);
                                                    const shiftId = `${shift.date}-${shift.period}-${shift.soldierId}`;
                                                    const legend = shift.note || "";
                                                    
-                                                   return sdr ? (
-                                                      <div key={i} className="text-[7pt] font-bold uppercase leading-tight relative group/item text-black">
-                                                         <div>{getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort}</div>
+                                                   if (!sdr) return null;
+                                                   if (shift.isHidden && !isAdmin) return null;
+
+                                                   return (
+                                                      <div key={i} className={`text-[7pt] font-bold uppercase leading-tight relative group/item text-black ${shift.isHidden ? 'opacity-50 print:hidden' : ''}`}>
+                                                         <div className={shift.isHidden ? 'line-through text-gray-500' : ''}>
+                                                            {getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort}
+                                                            {shift.isHidden && <span className="ml-1 text-[5pt] text-red-500 no-underline">(OCULTO)</span>}
+                                                         </div>
                                                          
                                                          {!row.hidePhone && !selectedRoster.hidePhone && sdr.phone && (
-                                                            <div className="text-[6pt] text-gray-500 font-medium">{sdr.phone}</div>
+                                                            <div className={`text-[6pt] font-medium ${shift.isHidden ? 'text-gray-400 line-through' : 'text-gray-500'}`}>{sdr.phone}</div>
                                                          )}
 
                                                          {isAdmin && editingLegendId === shiftId ? (
@@ -1392,23 +1528,37 @@ export const RosterManager: React.FC = () => {
                                                          ) : (
                                                            <span 
                                                              onClick={() => isAdmin && setEditingLegendId(shiftId)}
-                                                             className={`ml-1 font-black ${isAdmin ? 'cursor-pointer hover:underline' : ''} ${legend ? 'text-blue-800' : 'text-gray-300'}`}
+                                                             className={`ml-1 font-black ${isAdmin ? 'cursor-pointer hover:underline' : ''} ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : (legend ? 'text-blue-800' : 'text-gray-300')}`}
                                                              title={isAdmin ? "Clique para preencher a lacuna" : ""}
                                                            >
-                                                             {legend || (isAdmin ? '(...)' : '')}
+                                                             {legend.trim().toUpperCase().startsWith('ANIV') 
+                                                             ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})` 
+                                                             : (legend || (isAdmin ? '(...)' : ''))}
                                                            </span>
                                                          )}
 
                                                          {isAdmin && (
-                                                            <button 
-                                                              onClick={(e) => { e.stopPropagation(); removeShiftFromCell(shift); }}
-                                                              className="absolute -right-1 -top-1 text-red-500 opacity-0 group-hover/item:opacity-100 bg-white rounded-full p-0.5"
-                                                            >
-                                                               <CloseIcon size={8}/>
-                                                            </button>
+                                                            <div className="absolute -right-1 -top-1 flex space-x-0.5 opacity-0 group-hover/item:opacity-100">
+                                                               {(isHoliday || isOptional) && (
+                                                                  <button 
+                                                                    onClick={(e) => { e.stopPropagation(); toggleShiftVisibility(shift); }}
+                                                                    className="text-blue-500 bg-white rounded-full p-0.5 shadow-sm hover:bg-blue-50"
+                                                                    title={shift.isHidden ? "Mostrar Policial" : "Ocultar Policial"}
+                                                                  >
+                                                                     {shift.isHidden ? <EyeOff size={8}/> : <Eye size={8}/>}
+                                                                  </button>
+                                                               )}
+                                                               <button 
+                                                                 onClick={(e) => { e.stopPropagation(); removeShiftFromCell(shift); }}
+                                                                 className="text-red-500 bg-white rounded-full p-0.5 shadow-sm hover:bg-red-50"
+                                                                 title="Remover"
+                                                               >
+                                                                  <CloseIcon size={8}/>
+                                                               </button>
+                                                            </div>
                                                          )}
                                                       </div>
-                                                   ) : null;
+                                                   );
                                                 })}
                                                 {isAdmin && (
                                                    <button 
@@ -1478,20 +1628,35 @@ export const RosterManager: React.FC = () => {
                            </div>
                            <textarea 
                               readOnly={!isAdmin}
-                              className={`w-full bg-transparent resize-none outline-none text-[8pt] h-12 uppercase text-black ${isAdmin ? '' : 'pointer-events-none'}`} 
+                              className={`w-full bg-transparent resize-none outline-none text-[8pt] h-12 text-black ${isAdmin ? '' : 'pointer-events-none'}`} 
                               value={selectedRoster.situationText || ''}
-                              onChange={e => updateRoster({...selectedRoster, situationText: e.target.value.toUpperCase()})}
+                              onChange={e => updateRoster({...selectedRoster, situationText: e.target.value})}
                               placeholder={isAdmin ? "Ex: Sd Fulano (Férias), Cb Sicrano (LTS)..." : ""}
                           />
                       </div>
                    </div>
                    
-                   <div className="text-right font-bold">{settings.city}, {new Date().toLocaleDateString('pt-BR', {day: 'numeric', month: 'long', year: 'numeric'})}</div>
-                   <div className="text-center w-1/3 mx-auto mt-4">
-                      <div className="w-full border-b border-black mb-0.5"></div>
-                      <p className="font-bold uppercase text-[8pt] leading-none">{settings.directorName} – {settings.directorRank}</p>
-                      <p className="uppercase text-[7pt] leading-none mt-1">{settings.directorRole}</p>
-                      <p className="uppercase text-[7pt] leading-none mt-1">{settings.directorMatricula}</p> 
+                   <div className="flex flex-col items-center justify-center mt-2 relative group">
+                      <div className="absolute right-0 top-0 text-[8pt] font-bold text-black flex items-center">
+                         {settings.city}, 
+                         <div className="relative flex items-center">
+                           <input 
+                             readOnly={!isAdmin}
+                             type="date" 
+                             className={`bg-transparent font-bold ml-1 outline-none text-right cursor-pointer w-24 text-black ${isAdmin ? '' : 'pointer-events-none'}`}
+                             value={selectedRoster.creationDate || new Date().toISOString().split('T')[0]}
+                             onChange={e => updateRoster({...selectedRoster, creationDate: e.target.value})}
+                           />
+                           {isAdmin && <Calendar size={10} className="ml-1 text-gray-400 pointer-events-none opacity-0 group-hover:opacity-100" />}
+                         </div>
+                      </div>
+
+                      <div className="text-center w-1/3 mx-auto mt-4">
+                         <div className="w-full border-b border-black mb-0.5"></div>
+                         <p className="font-bold uppercase text-[8pt] leading-none">{settings.directorName} – {settings.directorRank}</p>
+                         <p className="uppercase text-[7pt] leading-none mt-1">{settings.directorRole}</p>
+                         <p className="uppercase text-[7pt] leading-none mt-1">{settings.directorMatricula}</p> 
+                      </div>
                    </div>
                 </div>
              </div>
@@ -1699,22 +1864,6 @@ export const RosterManager: React.FC = () => {
                                       const isHoliday = !isAmbulancia && selectedRoster.holidays?.includes(dStr);
                                       const isOptional = !isAmbulancia && selectedRoster.optionalHolidays?.includes(dStr);
 
-                                      if (isHoliday || isOptional) {
-                                          return (
-                                              <td 
-                                                  key={`${row.id}-${dStr}`} 
-                                                  rowSpan={isMerged ? sec.rows.length : 1}
-                                                  className={`border border-black p-0.5 align-middle text-center ${isHoliday ? 'bg-red-50/50' : 'bg-blue-50/50'}`}
-                                              >
-                                                  <div className="w-full h-full flex items-center justify-center min-h-[45px]">
-                                                      <span className={`text-[7pt] font-black select-none tracking-widest ${isHoliday ? 'text-red-300' : 'text-blue-300'}`}>
-                                                          {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
-                                                      </span>
-                                                  </div>
-                                              </td>
-                                          );
-                                      }
-
                                       const cellPeriodId = isMerged ? sec.rows[0].id : row.id;
                                       const shiftsInCell = selectedRoster.shifts
                                         .filter(s => s.date === dStr && s.period === cellPeriodId)
@@ -1725,11 +1874,22 @@ export const RosterManager: React.FC = () => {
                                            return getRankWeight(sA.rank) - getRankWeight(sB.rank);
                                         });
                                       
+                                      const hasAniv = shiftsInCell.some(s => s.note === 'ANIV');
+                                      
+                                      let cellBgClass = sec.bgClass || '';
+                                      if (hasAniv) {
+                                         cellBgClass = 'bg-green-100';
+                                      } else if (isHoliday) {
+                                         cellBgClass = 'bg-red-50/50';
+                                      } else if (isOptional) {
+                                         cellBgClass = 'bg-blue-50/50';
+                                      }
+
                                       return (
                                         <td 
                                           key={`${row.id}-${dStr}`} 
                                           rowSpan={isMerged ? sec.rows.length : 1}
-                                          className={`border border-black relative group p-0.5 ${isAdmin ? 'hover:bg-yellow-50 cursor-pointer' : ''} ${selectedRoster.type === 'cat_odo' ? 'align-top' : 'align-middle'} h-[45px] ${sec.bgClass || ''}`}
+                                          className={`border border-black relative group p-0.5 ${isAdmin ? 'hover:bg-yellow-50 cursor-pointer' : ''} ${selectedRoster.type === 'cat_odo' && shiftsInCell.length > 0 ? 'align-top' : 'align-middle'} h-[45px] ${cellBgClass}`}
                                           onClick={() => { 
                                               if(isAdmin) {
                                                   const isMultiAdd = ['cat_ast', 'cat_psi', 'cat_odo'].includes(selectedRoster.type);
@@ -1740,22 +1900,30 @@ export const RosterManager: React.FC = () => {
                                               } 
                                           }}
                                         >
-                                           <div className={`flex flex-col items-center ${selectedRoster.type === 'cat_odo' ? 'justify-start pt-1' : 'justify-center'} w-full h-full overflow-hidden leading-tight space-y-1`}>
+                                           {(isHoliday || isOptional) && (
+                                              <div className={`absolute ${shiftsInCell.length === 0 ? 'inset-0 flex items-center justify-center' : 'top-0 left-0 right-0'} text-[5pt] font-black select-none tracking-widest text-center ${isHoliday ? 'text-red-600' : 'text-blue-600'}`}>
+                                                  {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
+                                              </div>
+                                           )}
+                                           <div className={`flex flex-col items-center ${selectedRoster.type === 'cat_odo' && shiftsInCell.length > 0 ? 'justify-start pt-2' : 'justify-center'} w-full h-full overflow-hidden leading-tight space-y-1`}>
                                              {shiftsInCell.map((shift, idx) => {
                                                 const sdr = soldiers.find(s => s.id === shift.soldierId);
                                                 if (!sdr) return null;
+                                                if (shift.isHidden && !isAdmin) return null;
+
                                                 const shiftId = `${shift.date}-${shift.period}-${shift.soldierId}`;
                                                 const legend = shift.note || "";
 
-                                                return (
-                                                   <div key={idx} className="w-full relative group/item text-black">
-                                                     <div className="text-[9pt] font-bold text-center leading-none uppercase truncate w-full px-0.5">
+                                                 return (
+                                                   <div key={idx} className={`w-full relative group/item text-black ${shift.isHidden ? 'opacity-50 print:hidden' : ''}`} style={{ fontFamily: appearance.fontFamily }}>
+                                                     <div className={`${getFontSizeClass(appearance.fontSize)} ${getTextCaseClass(appearance.textCase)} font-bold text-center leading-none truncate w-full px-0.5 ${shift.isHidden ? 'line-through text-gray-500' : ''}`}>
                                                        {getAbbreviatedRank(sdr.rank)} {sdr.matricula || ''} {sdr.name.split(' ')[0]} {sdr.roleShort}
+                                                       {shift.isHidden && <span className="ml-1 text-[5pt] text-red-500 no-underline">(OCULTO)</span>}
                                                      </div>
-                                                     <div className="text-[7pt] text-center mt-0.5 font-bold text-gray-600 leading-none">
+                                                     <div className={`${getSmallFontSizeClass(appearance.fontSize)} text-center mt-0.5 font-bold leading-none ${shift.isHidden ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
                                                         {sdr.phone || '-'}
                                                      </div>
-                                                     <div className="text-[7pt] text-center mt-0.5 font-black text-blue-800 leading-none min-h-[8px]">
+                                                     <div className={`${getSmallFontSizeClass(appearance.fontSize)} text-center mt-0.5 font-black text-blue-800 leading-none min-h-[8px]`}>
                                                         {isAdmin && editingLegendId === shiftId ? (
                                                            <input 
                                                              autoFocus
@@ -1767,24 +1935,38 @@ export const RosterManager: React.FC = () => {
                                                            />
                                                         ) : (
                                                            <span 
-                                                             onClick={(e) => { e.stopPropagation(); if(isAdmin) setEditingLegendId(shiftId); }}
-                                                             className={`${isAdmin ? 'cursor-pointer' : ''} ${legend ? (isAdmin ? 'hover:underline' : '') : (isAdmin ? 'opacity-0 group-hover:opacity-30' : 'hidden')}`}
+                                                              onClick={(e) => { e.stopPropagation(); if(isAdmin) setEditingLegendId(shiftId); }}
+                                                              className={`${isAdmin ? 'cursor-pointer' : ''} ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800 font-black' : (legend ? (isAdmin ? 'hover:underline' : '') : (isAdmin ? 'opacity-0 group-hover:opacity-30' : 'hidden'))}`}
                                                            >
-                                                              {legend || '(+)'}
+                                                              {legend.trim().toUpperCase().startsWith('ANIV') 
+                                                                 ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`
+                                                                 : (legend || '(+)')}
                                                            </span>
                                                         )}
                                                      </div>
    
                                                      {isAdmin && (
-                                                        <button 
-                                                          onClick={(e) => { e.stopPropagation(); removeShiftFromCell(shift); }}
-                                                          className="absolute -right-1 -top-1 text-red-500 opacity-0 group-hover/item:opacity-100 bg-white rounded-full p-0.5 shadow-sm"
-                                                        >
-                                                           <CloseIcon size={8}/>
-                                                        </button>
+                                                        <div className="absolute -right-1 -top-1 flex space-x-0.5 opacity-0 group-hover/item:opacity-100">
+                                                           {(isHoliday || isOptional) && (
+                                                              <button 
+                                                                onClick={(e) => { e.stopPropagation(); toggleShiftVisibility(shift); }}
+                                                                className="text-blue-500 bg-white rounded-full p-0.5 shadow-sm hover:bg-blue-50"
+                                                                title={shift.isHidden ? "Mostrar Policial" : "Ocultar Policial"}
+                                                              >
+                                                                 {shift.isHidden ? <EyeOff size={8}/> : <Eye size={8}/>}
+                                                              </button>
+                                                           )}
+                                                           <button 
+                                                             onClick={(e) => { e.stopPropagation(); removeShiftFromCell(shift); }}
+                                                             className="text-red-500 bg-white rounded-full p-0.5 shadow-sm hover:bg-red-50"
+                                                             title="Remover"
+                                                           >
+                                                              <CloseIcon size={8}/>
+                                                           </button>
+                                                        </div>
                                                      )}
                                                    </div>
-                                                );
+                                                 );
                                              })}
                                              
                                              {shiftsInCell.length === 0 && (

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/store';
 import { Soldier, Rank, Role, Status, Cadre } from '../types';
+import { getShortRole } from '../utils';
 import { Plus, Search, Edit2, Trash2, UserX, UserCheck, FileSpreadsheet, Coffee, Save, X, Shield, AlertTriangle, ListOrdered } from 'lucide-react';
 
 export const Personnel: React.FC = () => {
@@ -18,11 +19,11 @@ export const Personnel: React.FC = () => {
   // Form State
   const [formData, setFormData] = useState<Partial<Soldier>>({
     name: '', fullName: '', rank: Rank.SD, cadre: Cadre.QOPPM, role: Role.MOTORISTA, roleShort: '(M)', sector: '', team: '', status: Status.ATIVO, phone: '', matricula: '', mf: '',
-    absenceStartDate: '', absenceEndDate: '', folgaReason: '', availableForExtra: true, orderExtra: 0
+    absenceStartDate: '', absenceEndDate: '', folgaReason: '', availableForExtra: true, orderExtra: 0, birthday: ''
   });
 
   const isAdmin = user.role === 'ADMIN';
-  const isOperator = isAdmin; // Only admin can edit personnel in this simplified model
+  const canEditPersonnel = isAdmin;
   const isViewer = user.role === 'USER';
 
   useEffect(() => {
@@ -31,18 +32,6 @@ export const Personnel: React.FC = () => {
 
   const loadData = () => {
     setSoldiers(db.getSoldiers());
-  };
-
-  const getShortRole = (role: Role): string => {
-    switch (role) {
-      case Role.ENFERMEIRO: return '(1)';
-      case Role.TEC_ENF: return '(2)';
-      case Role.MEDICO: return '(3)';
-      case Role.FISCAL: return '(F)';
-      case Role.MOTORISTA: return '(M)';
-      case Role.FISCAL_MOTORISTA: return '(F.M)';
-      default: return '';
-    }
   };
 
   const handleSave = () => {
@@ -75,7 +64,7 @@ export const Personnel: React.FC = () => {
       rank: formData.rank as Rank,
       cadre: formData.cadre || Cadre.QOPPM,
       role: formData.role as Role,
-      roleShort: formData.roleShort || getShortRole(formData.role as Role),
+      roleShort: formData.roleShort ?? getShortRole(formData.role as Role),
       sector: formData.sector || 'Geral',
       team: formData.team || '',
       status: formData.status as Status,
@@ -86,7 +75,8 @@ export const Personnel: React.FC = () => {
       absenceEndDate: formData.status !== Status.ATIVO && formData.status !== Status.FOLGA ? formData.absenceEndDate : undefined,
       folgaReason: formData.status === Status.FOLGA ? formData.folgaReason : undefined,
       availableForExtra: formData.availableForExtra !== undefined ? formData.availableForExtra : true,
-      orderExtra: Number(nextOrder)
+      orderExtra: Number(nextOrder),
+      birthday: formData.birthday
     };
 
     db.saveSoldier(newSoldier);
@@ -226,7 +216,7 @@ export const Personnel: React.FC = () => {
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
-        {isOperator && (
+        {canEditPersonnel && (
           <div className="flex space-x-2">
             <button 
               onClick={() => setIsImportModalOpen(true)}
@@ -270,6 +260,7 @@ export const Personnel: React.FC = () => {
                   {s.name}
                   {s.matricula && <span className="block text-[10px] text-gray-400 font-normal">Num: {s.matricula}</span>}
                   {s.mf && <span className="block text-[10px] text-gray-400 font-normal">MF: {s.mf}</span>}
+                  {s.birthday && <span className="block text-[10px] text-gray-400 font-normal">Nasc: {formatDate(s.birthday)}</span>}
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 font-mono text-xs">{s.phone || '-'}</td>
                 <td className="px-6 py-4 text-sm">

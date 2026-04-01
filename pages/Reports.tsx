@@ -14,7 +14,10 @@ import {
   AlertCircle,
   Clock,
   Briefcase,
-  History
+  History,
+  Mail,
+  Phone,
+  MapPin
 } from 'lucide-react';
 import { Rank, Role, Status, Soldier, Roster, Shift, BankTransaction } from '../types';
 
@@ -106,6 +109,52 @@ export const Reports: React.FC = () => {
             <Printer size={18} />
             <span>Imprimir Relatório</span>
           </button>
+        </div>
+
+        {/* Unit Contact Info Card - Exclusively in Reports */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-800">
+          <div className="flex items-center space-x-3">
+            <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg text-blue-600 dark:text-blue-400">
+              <Mail size={18} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">E-mail Institucional</p>
+              <input 
+                type="text" 
+                className="w-full bg-transparent border-none p-0 text-xs font-bold text-gray-700 dark:text-gray-200 focus:ring-0 outline-none"
+                defaultValue="ds@pm.ce.gov.br"
+                placeholder="Clique para editar..."
+              />
+            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            <div className="bg-green-100 dark:bg-green-900/30 p-2 rounded-lg text-green-600 dark:text-green-400">
+              <Phone size={18} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Contato / WhatsApp</p>
+              <input 
+                type="text" 
+                className="w-full bg-transparent border-none p-0 text-xs font-bold text-gray-700 dark:text-gray-200 focus:ring-0 outline-none"
+                defaultValue="(85) 3101-2233"
+                placeholder="Clique para editar..."
+              />
+            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg text-purple-600 dark:text-purple-400">
+              <MapPin size={18} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Endereço da Unidade</p>
+              <input 
+                type="text" 
+                className="w-full bg-transparent border-none p-0 text-xs font-bold text-gray-700 dark:text-gray-200 focus:ring-0 outline-none"
+                defaultValue="Av. Aguanambi, 2280 - Fátima, Fortaleza-CE"
+                placeholder="Clique para editar..."
+              />
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
@@ -220,6 +269,11 @@ export const Reports: React.FC = () => {
                       activeReport === 'bank' ? 'Banco de Folgas (Saldos)' : 
                       activeReport === 'bank_history' ? 'Log de Movimentações (Banco de Folgas)' : 'Escalas Extras'
                     }</p>
+                    <div className="mt-2 flex flex-col text-[9px] font-bold text-gray-400 uppercase">
+                      <span>E-mail: ds@pm.ce.gov.br</span>
+                      <span>Contato: (85) 3101-2233</span>
+                      <span>Endereço: Av. Aguanambi, 2280 - Fátima, Fortaleza-CE</span>
+                    </div>
                  </div>
               </div>
               <div className="text-right">
