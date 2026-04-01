@@ -59,6 +59,43 @@ function getHolidaysWithNames(year: number): { date: string, name: string }[] {
   return holidays;
 }
 
+export const getShortRole = (role: string): string => {
+  const map: Record<string, string> = {
+    'Enfermeiro': 'ENF',
+    'Téc. Enfermagem': 'TEC ENF',
+    'Médico': 'MED',
+    'Fiscal': 'FISC',
+    'Motorista': 'MOT',
+    'Fiscal/Motorista': 'FISC/MOT',
+    'Psicólogo': 'PSI',
+    'Assistente Social': 'ASS SOC',
+    'Dentista': 'DEN',
+    'Administrativo': 'ADM',
+  };
+  return map[role] || role;
+};
+
+export const getAbbreviatedRank = (rank: string): string => {
+  const abbreviations: Record<string, string> = {
+    [Rank.CEL]: 'CEL',
+    [Rank.TEN_CEL]: 'TC',
+    [Rank.MAJ]: 'MAJ',
+    [Rank.CAP]: 'CAP',
+    [Rank.TEN_1]: '1º TEN',
+    [Rank.TEN_2]: '2º TEN',
+    [Rank.ASP]: 'ASP',
+    [Rank.AL_OF]: 'AL OF',
+    [Rank.SUBTEN]: 'ST',
+    [Rank.SGT_1]: '1º SGT',
+    [Rank.SGT_2]: '2º SGT',
+    [Rank.SGT_3]: '3º SGT',
+    [Rank.CB]: 'CB',
+    [Rank.SD]: 'SD',
+    [Rank.CIVIL]: 'CIVIL',
+  };
+  return abbreviations[rank] || rank;
+};
+
 export const getRankWeight = (rank: string) => {
   const map: Record<string, number> = {
     [Rank.CEL]: 1, 
