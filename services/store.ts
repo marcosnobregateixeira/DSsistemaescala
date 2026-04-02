@@ -274,10 +274,9 @@ class StoreService {
 
   // --- AUTHENTICATION LOGIC (SUPABASE) ---
 
-  async login(password: string): Promise<{ user: User | null, error: string | null }> {
+  async login(email: string, password: string): Promise<{ user: User | null, error: string | null }> {
     if (!supabase) {
       // Fallback para modo offline (apenas para desenvolvimento local sem Supabase)
-      // Em produção, isso deve ser desabilitado ou removido.
       console.warn('Supabase não configurado. Usando autenticação local insegura (apenas dev).');
       const mockUser: User = { id: 'local-admin', username: 'Administrador (Offline)', role: 'ADMIN' };
       sessionStorage.setItem('current_user', JSON.stringify(mockUser));
@@ -286,11 +285,6 @@ class StoreService {
     }
 
     try {
-      // Mapeamento de senha única para email/senha do Supabase
-      // Isso mantém a UX de "Senha Única" solicitada, mas usa autenticação real no backend.
-      // O email é fixo para este caso de uso específico.
-      const email = 'marcos_notigan@hotmail.com'; // Email administrativo padrão
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
@@ -299,7 +293,7 @@ class StoreService {
       if (error) {
         console.error('Erro de autenticação:', error.message);
         if (error.message.includes("Invalid login credentials")) {
-             return { user: null, error: 'Credenciais inválidas. Se for o primeiro acesso, use "Esqueci a senha" com a Chave Mestra para criar a conta.' };
+             return { user: null, error: 'Credenciais inválidas. Verifique seu email e senha.' };
         }
         if (error.message.includes("Email not confirmed")) {
              return { user: null, error: 'Email não confirmado. Verifique sua caixa de entrada.' };
@@ -310,8 +304,8 @@ class StoreService {
       if (data.user) {
         const user: User = {
           id: data.user.id,
-          username: data.user.email || 'Administrador',
-          role: 'ADMIN' // Assumimos admin para quem tem a senha correta neste modelo simplificado
+          username: data.user.email || 'Usuário',
+          role: (data.user.email || '').includes('operador') ? 'USER' : 'ADMIN'
         };
         sessionStorage.setItem('current_user', JSON.stringify(user));
         this.notify();
@@ -356,27 +350,23 @@ class StoreService {
     return key === MASTER_KEY;
   }
 
-  async resetAdminPassword(newPassword: string): Promise<void> {
+  async resetAdminPassword(email: string, newPassword: string): Promise<void> {
     if (supabase) {
-        const email = 'marcos_notigan@hotmail.com';
-        
-        // Tenta criar o usuário (caso não exista)
+        // Tenta criar o usuário (caso não exista) ou resetar
         const { data, error } = await supabase.auth.signUp({
             email,
             password: newPassword,
         });
 
         if (error) {
-            // Se o usuário já existe, não podemos alterar a senha sem a antiga ou sem email.
-            // Mas para facilitar o "setup", vamos logar o erro.
-            console.error("Erro ao criar/resetar usuário admin:", error.message);
+            console.error("Erro ao criar/resetar usuário:", error.message);
             throw new Error(error.message.includes("already registered") 
-                ? "Usuário admin já existe. Se esqueceu a senha, use o painel do Supabase." 
+                ? "Este usuário já existe. Se esqueceu a senha, utilize o fluxo de recuperação do Supabase ou fale com o suporte." 
                 : error.message);
         }
 
         if (data.user && !data.session) {
-             throw new Error("Usuário criado! Verifique seu email (" + email + ") para confirmar o cadastro antes de logar.");
+             throw new Error("Usuário criado/redefinido! Verifique seu email (" + email + ") para confirmar o cadastro antes de logar.");
         }
     }
   }
