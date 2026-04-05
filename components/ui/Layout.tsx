@@ -29,7 +29,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, isDarkMode, toggleThem
   if (!user) return null;
 
   const isAdmin = user.role === 'ADMIN';
-  const isOperator = isAdmin || user.role === 'USER'; // Adjusting logic for simplified roles
+  const isOperator = isAdmin || user.role === 'OPERADOR';
+  const isViewer = user.role === 'VISUALIZADOR';
   
   const signOut = async () => {
     await db.logout();

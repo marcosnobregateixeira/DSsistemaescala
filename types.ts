@@ -48,7 +48,11 @@ export enum Status {
   DISPENSA = 'Dispensa',
   FOLGA = 'Folga',
   CURSO = 'Curso',
-  AFASTADO = 'Afastado' // Genérico
+  AFASTADO = 'Afastado', // Genérico
+  NUPCIAS = 'Núpcias',
+  DISPENSA_ART_68 = 'Dispensa de Serviço (Art. 68)',
+  LICENCA_PATERNIDADE = 'Licença Paternidade',
+  LICENCA_MATERNIDADE = 'Licença Maternidade'
 }
 
 export interface BankTransaction {
@@ -83,6 +87,8 @@ export interface Soldier {
   // Extra Duty Fields
   orderExtra?: number; // Sequência na fila (menor número = topo da fila)
   availableForExtra?: boolean; // Se participa da escala extra
+  birthday?: string; // Data de aniversário (YYYY-MM-DD)
+  pis?: string; // PIS/PASEP
 }
 
 export interface ExtraDutyHistory {
@@ -112,6 +118,7 @@ export interface Shift {
   soldierId: string;
   note?: string; 
   customData?: Record<string, string>; // Dados para colunas dinâmicas (chave = indice da coluna)
+  isHidden?: boolean; // Ocultar policial em feriados/facultativos
 }
 
 export interface RosterRow {
@@ -152,8 +159,26 @@ export interface Roster {
   optionalHolidays?: string[]; // Lista de datas que são ponto facultativo
 }
 
+export interface ColorPalette {
+  id: string;
+  name: string;
+  headerBg: string;
+  headerText: string;
+  tableHeaderBg: string;
+  tableHeaderText: string;
+  tableBodyBg: string;
+  tableBodyText: string;
+  borderColor: string;
+  accentColor: string;
+  holidayBg: string;
+  optionalHolidayBg: string;
+  weekendBg: string;
+}
+
 export interface AppSettings {
   orgName: string;
+  institutionName?: string;
+  unitName?: string;
   directorName: string;
   directorRank: string;
   directorRole: string;
@@ -167,6 +192,13 @@ export interface AppSettings {
   showLogoRight: boolean;
   rosterCategories: RosterCategory[];
   teamMappings?: TeamMapping[];
+  colorPalette?: ColorPalette; // The selected palette object
+  availablePalettes?: ColorPalette[];
+  appearance?: {
+    fontFamily: string;
+    fontSize: 'small' | 'medium' | 'large';
+    textCase: 'uppercase' | 'lowercase' | 'capitalize' | 'normal';
+  };
 }
 
 export interface TeamMapping {
@@ -174,7 +206,7 @@ export interface TeamMapping {
   shiftName: string;
 }
 
-export type UserRole = 'ADMIN' | 'USER';
+export type UserRole = 'ADMIN' | 'OPERADOR' | 'VISUALIZADOR';
 
 export interface Profile {
   id: string;
@@ -189,6 +221,6 @@ export interface User {
   id: string;
   email?: string;
   profile?: Profile;
-  username?: string; // Keeping for backward compatibility if needed
-  role?: UserRole; // Keeping for backward compatibility if needed
+  username?: string; 
+  role?: UserRole; 
 }

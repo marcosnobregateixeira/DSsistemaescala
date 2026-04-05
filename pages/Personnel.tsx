@@ -23,8 +23,8 @@ export const Personnel: React.FC = () => {
   });
 
   const isAdmin = user.role === 'ADMIN';
-  const canEditPersonnel = isAdmin;
-  const isViewer = user.role === 'USER';
+  const canEditPersonnel = isAdmin || user.role === 'OPERADOR';
+  const isViewer = user.role === 'VISUALIZADOR';
 
   useEffect(() => {
     loadData();

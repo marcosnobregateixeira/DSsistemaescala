@@ -8,12 +8,16 @@ import { RosterManager } from './pages/RosterManager';
 import { Reports } from './pages/Reports';
 import { Settings } from './pages/Settings';
 import { LocalLogin } from './components/auth/LocalLogin';
+import { PublicRosters } from './pages/PublicRosters';
 import { db } from './services/store';
-import { User } from './types';
+import { User, UserRole } from './types';
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [user, setUser] = useState<User | null>(db.getCurrentUser());
+
+  // Check if current path is public
+  const isPublicPath = window.location.pathname === '/public-rosters';
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -33,25 +37,55 @@ function App() {
     // Check initial session from Supabase
     import('./services/supabase').then(({ supabase }) => {
       if (supabase) {
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        supabase.auth.getSession().then(async ({ data: { session } }) => {
           if (session?.user) {
              // Sync Supabase session to local store format
+             let role: UserRole = 'VISUALIZADOR';
+             const email = session.user.email?.toLowerCase() || '';
+             
+             if (email === 'marcos_notigan@hotmail.com') {
+                role = 'ADMIN';
+             } else if (email.includes('operador')) {
+                role = 'OPERADOR';
+             }
+             
+             // Try to fetch profile for exact role
+             const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+             if (profile?.role) {
+                role = profile.role.toUpperCase() as UserRole;
+             }
+
              const user: User = {
                 id: session.user.id,
                 username: session.user.email || 'Administrador',
-                role: 'ADMIN'
+                role
              };
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
           }
         });
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
           if (session?.user) {
+             let role: UserRole = 'VISUALIZADOR';
+             const email = session.user.email?.toLowerCase() || '';
+             
+             if (email === 'marcos_notigan@hotmail.com') {
+                role = 'ADMIN';
+             } else if (email.includes('operador')) {
+                role = 'OPERADOR';
+             }
+             
+             // Try to fetch profile for exact role
+             const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+             if (profile?.role) {
+                role = profile.role.toUpperCase() as UserRole;
+             }
+
              const user: User = {
                 id: session.user.id,
                 username: session.user.email || 'Administrador',
-                role: 'ADMIN'
+                role
              };
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
@@ -80,41 +114,54 @@ function App() {
     }
   };
 
-  if (!user) {
-    return <LocalLogin />;
-  }
-
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public Route */}
+        <Route path="/public-rosters" element={<PublicRosters />} />
+        
+        {/* Auth Routes */}
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <LocalLogin />} />
+
+        {/* Protected Routes */}
         <Route path="/" element={
-          <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
-            <Dashboard />
-          </Layout>
+          user ? (
+            <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
+              <Dashboard />
+            </Layout>
+          ) : <Navigate to="/login" replace />
         } />
 
         <Route path="/personnel" element={
-          <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
-            <Personnel />
-          </Layout>
+          user ? (
+            <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
+              <Personnel />
+            </Layout>
+          ) : <Navigate to="/login" replace />
         } />
 
         <Route path="/rosters" element={
-          <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
-            <RosterManager />
-          </Layout>
+          user ? (
+            <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
+              <RosterManager />
+            </Layout>
+          ) : <Navigate to="/login" replace />
         } />
 
         <Route path="/reports" element={
-          <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
-            <Reports />
-          </Layout>
+          user ? (
+            <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
+              <Reports />
+            </Layout>
+          ) : <Navigate to="/login" replace />
         } />
 
         <Route path="/settings" element={
-          <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
-            <Settings />
-          </Layout>
+          user?.role === 'ADMIN' ? (
+            <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
+              <Settings />
+            </Layout>
+          ) : <Navigate to="/" replace />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />

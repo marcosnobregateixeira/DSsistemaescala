@@ -1,5 +1,128 @@
-import { Soldier, Roster, AppSettings, User, Rank, Role, Status, RosterCategory, ExtraDutyHistory, Cadre, TeamMapping } from '../types';
+import { Soldier, Roster, AppSettings, User, UserRole, Rank, Role, Status, RosterCategory, ExtraDutyHistory, Cadre, TeamMapping, ColorPalette } from '../types';
 import { supabase } from './supabase';
+
+const DEFAULT_PALETTES: ColorPalette[] = [
+  {
+    id: 'classic',
+    name: 'Clássico (Padrão)',
+    headerBg: '#ffffff',
+    headerText: '#000000',
+    tableHeaderBg: '#cbd5b0',
+    tableHeaderText: '#000000',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#000000',
+    borderColor: '#000000',
+    accentColor: '#e4e9d6',
+    holidayBg: '#e2e8f0',
+    optionalHolidayBg: '#f1f5f9',
+    weekendBg: '#f8fafc'
+  },
+  {
+    id: 'modern_blue',
+    name: 'Azul Moderno',
+    headerBg: '#f8fafc',
+    headerText: '#1e293b',
+    tableHeaderBg: '#3b82f6',
+    tableHeaderText: '#ffffff',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#334155',
+    borderColor: '#cbd5e1',
+    accentColor: '#eff6ff',
+    holidayBg: '#fee2e2',
+    optionalHolidayBg: '#dcfce7',
+    weekendBg: '#f1f5f9'
+  },
+  {
+    id: 'dark_mode',
+    name: 'Modo Escuro (Impressão)',
+    headerBg: '#1e293b',
+    headerText: '#f8fafc',
+    tableHeaderBg: '#334155',
+    tableHeaderText: '#f8fafc',
+    tableBodyBg: '#0f172a',
+    tableBodyText: '#cbd5e1',
+    borderColor: '#334155',
+    accentColor: '#1e293b',
+    holidayBg: '#450a0a',
+    optionalHolidayBg: '#064e3b',
+    weekendBg: '#1e293b'
+  },
+  {
+    id: 'military_green',
+    name: 'Verde Militar',
+    headerBg: '#f0f4f0',
+    headerText: '#1a2e1a',
+    tableHeaderBg: '#2d4a2d',
+    tableHeaderText: '#ffffff',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#1a2e1a',
+    borderColor: '#2d4a2d',
+    accentColor: '#e8f0e8',
+    holidayBg: '#ffeded',
+    optionalHolidayBg: '#edfff0',
+    weekendBg: '#f5f9f5'
+  },
+  {
+    id: 'sunset_warm',
+    name: 'Pôr do Sol',
+    headerBg: '#fff7ed',
+    headerText: '#7c2d12',
+    tableHeaderBg: '#ea580c',
+    tableHeaderText: '#ffffff',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#431407',
+    borderColor: '#ea580c',
+    accentColor: '#fff7ed',
+    holidayBg: '#ffedd5',
+    optionalHolidayBg: '#fef3c7',
+    weekendBg: '#fffaf0'
+  },
+  {
+    id: 'ocean_breeze',
+    name: 'Brisa do Oceano',
+    headerBg: '#f0f9ff',
+    headerText: '#0c4a6e',
+    tableHeaderBg: '#0284c7',
+    tableHeaderText: '#ffffff',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#082f49',
+    borderColor: '#0284c7',
+    accentColor: '#f0f9ff',
+    holidayBg: '#e0f2fe',
+    optionalHolidayBg: '#f0fdf4',
+    weekendBg: '#f0f4f8'
+  },
+  {
+    id: 'light_red',
+    name: 'Vermelho Claro (Alerta)',
+    headerBg: '#fef2f2',
+    headerText: '#991b1b',
+    tableHeaderBg: '#ef4444',
+    tableHeaderText: '#ffffff',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#450a0a',
+    borderColor: '#fca5a5',
+    accentColor: '#fef2f2',
+    holidayBg: '#fee2e2',
+    optionalHolidayBg: '#ffedd5',
+    weekendBg: '#fff1f2'
+  },
+  {
+    id: 'royal_purple',
+    name: 'Roxo Real',
+    headerBg: '#faf5ff',
+    headerText: '#581c87',
+    tableHeaderBg: '#9333ea',
+    tableHeaderText: '#ffffff',
+    tableBodyBg: '#ffffff',
+    tableBodyText: '#3b0764',
+    borderColor: '#d8b4fe',
+    accentColor: '#faf5ff',
+    holidayBg: '#f3e8ff',
+    optionalHolidayBg: '#fce7f3',
+    weekendBg: '#f5f3ff'
+  }
+];
 
 const INITIAL_CATEGORIES: RosterCategory[] = [
   { id: 'cat_amb', name: 'Ambulância', icon: 'Truck' },
@@ -19,6 +142,8 @@ const INITIAL_TEAM_MAPPINGS: TeamMapping[] = [
 
 const INITIAL_SETTINGS: AppSettings = {
   orgName: 'DIRETORIA DE SAÚDE – PMCE',
+  institutionName: 'POLÍCIA MILITAR DO CEARÁ',
+  unitName: 'COMANDO DE POLICIAMENTO DE CHOQUE',
   directorName: 'FRANCISCO ÉLITON ARAÚJO',
   directorRank: 'Cel PM',
   directorRole: 'Diretor de Saúde - DS/PMCE',
@@ -31,7 +156,14 @@ const INITIAL_SETTINGS: AppSettings = {
   city: 'Fortaleza-CE',
   showPhoneInPrint: true,
   rosterCategories: INITIAL_CATEGORIES,
-  teamMappings: INITIAL_TEAM_MAPPINGS
+  teamMappings: INITIAL_TEAM_MAPPINGS,
+  colorPalette: DEFAULT_PALETTES[0],
+  availablePalettes: DEFAULT_PALETTES,
+  appearance: {
+    fontFamily: 'Arial, Helvetica, sans-serif',
+    fontSize: 'medium',
+    textCase: 'uppercase'
+  }
 };
 
 const INITIAL_SOLDIERS: Soldier[] = [
@@ -140,7 +272,12 @@ class StoreService {
       showPhoneInPrint: stored.showPhoneInPrint !== undefined ? stored.showPhoneInPrint : defaults.showPhoneInPrint,
       // Arrays
       rosterCategories: stored.rosterCategories || defaults.rosterCategories,
-      teamMappings: stored.teamMappings || defaults.teamMappings
+      teamMappings: stored.teamMappings || defaults.teamMappings,
+      // Color Palettes
+      colorPalette: stored.colorPalette || defaults.colorPalette,
+      availablePalettes: DEFAULT_PALETTES, // Always use the latest system palettes
+      // Typography
+      appearance: stored.appearance || defaults.appearance
     };
     
     // Ensure cat_odo exists in rosterCategories
@@ -277,6 +414,7 @@ class StoreService {
   async login(email: string, password: string): Promise<{ user: User | null, error: string | null }> {
     if (!supabase) {
       // Fallback para modo offline (apenas para desenvolvimento local sem Supabase)
+      // Em produção, isso deve ser desabilitado ou removido.
       console.warn('Supabase não configurado. Usando autenticação local insegura (apenas dev).');
       const mockUser: User = { id: 'local-admin', username: 'Administrador (Offline)', role: 'ADMIN' };
       sessionStorage.setItem('current_user', JSON.stringify(mockUser));
@@ -293,7 +431,7 @@ class StoreService {
       if (error) {
         console.error('Erro de autenticação:', error.message);
         if (error.message.includes("Invalid login credentials")) {
-             return { user: null, error: 'Credenciais inválidas. Verifique seu email e senha.' };
+             return { user: null, error: 'Credenciais inválidas. Se for o primeiro acesso, use "Esqueci a senha" com a Chave Mestra para criar a conta.' };
         }
         if (error.message.includes("Email not confirmed")) {
              return { user: null, error: 'Email não confirmado. Verifique sua caixa de entrada.' };
@@ -302,10 +440,25 @@ class StoreService {
       }
 
       if (data.user) {
+        let role: UserRole = 'VISUALIZADOR';
+        const userEmail = data.user.email?.toLowerCase() || '';
+        
+        if (userEmail === 'marcos_notigan@hotmail.com') {
+           role = 'ADMIN';
+        } else if (userEmail.includes('operador')) {
+           role = 'OPERADOR';
+        }
+        
+        // Try to fetch profile for exact role
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
+        if (profile?.role) {
+           role = profile.role.toUpperCase() as UserRole;
+        }
+
         const user: User = {
           id: data.user.id,
-          username: data.user.email || 'Usuário',
-          role: (data.user.email || '').includes('operador') ? 'USER' : 'ADMIN'
+          username: data.user.email || 'Administrador',
+          role
         };
         sessionStorage.setItem('current_user', JSON.stringify(user));
         this.notify();
@@ -352,21 +505,26 @@ class StoreService {
 
   async resetAdminPassword(email: string, newPassword: string): Promise<void> {
     if (supabase) {
-        // Tenta criar o usuário (caso não exista) ou resetar
+        // Tenta criar o usuário (caso não exista)
         const { data, error } = await supabase.auth.signUp({
             email,
             password: newPassword,
         });
 
         if (error) {
-            console.error("Erro ao criar/resetar usuário:", error.message);
-            throw new Error(error.message.includes("already registered") 
-                ? "Este usuário já existe. Se esqueceu a senha, utilize o fluxo de recuperação do Supabase ou fale com o suporte." 
-                : error.message);
+            if (error.message.includes("already registered")) {
+                const { error: resetError } = await supabase.auth.resetPasswordForEmail(email);
+                if (resetError) {
+                    throw new Error("Erro ao enviar email de recuperação: " + resetError.message);
+                }
+                throw new Error("Usuário já existe. Um email de recuperação foi enviado para " + email + ". Verifique sua caixa de entrada.");
+            }
+            console.error("Erro ao criar/resetar usuário admin:", error.message);
+            throw new Error(error.message);
         }
 
         if (data.user && !data.session) {
-             throw new Error("Usuário criado/redefinido! Verifique seu email (" + email + ") para confirmar o cadastro antes de logar.");
+             throw new Error("Usuário criado! Verifique seu email (" + email + ") para confirmar o cadastro antes de logar.");
         }
     }
   }

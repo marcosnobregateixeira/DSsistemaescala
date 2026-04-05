@@ -36,7 +36,8 @@ export const Dashboard: React.FC = () => {
   const settings = db.getSettings();
   
   const isAdmin = user.role === 'ADMIN';
-  const isOperator = isAdmin || user.role === 'USER';
+  const isOperator = isAdmin || user.role === 'OPERADOR';
+  const isViewer = user.role === 'VISUALIZADOR';
 
   // --- SYNC WITH FIREBASE ---
   useEffect(() => {

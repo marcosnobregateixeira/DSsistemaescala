@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/store';
 import { Lock, Eye, EyeOff, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
 export const LocalLogin: React.FC = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -262,13 +264,14 @@ export const LocalLogin: React.FC = () => {
             </div>
           </div>
 
-          <a
-            href="/public-rosters"
-            className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black py-3 px-4 rounded-lg transition flex justify-center items-center space-x-2 uppercase text-xs tracking-widest border border-slate-200 dark:border-slate-700 no-underline"
+          <button
+            type="button"
+            onClick={() => navigate('/public-rosters')}
+            className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black py-3 px-4 rounded-lg transition flex justify-center items-center space-x-2 uppercase text-xs tracking-widest border border-slate-200 dark:border-slate-700"
           >
             <Eye size={18} />
             <span>Visualizar Escalas</span>
-          </a>
+          </button>
         </form>
       </div>
     </div>
