@@ -1,9 +1,9 @@
 
 import React, { useState, useRef } from 'react';
 import { db } from '../services/store';
-import { AppSettings, RosterCategory, Soldier, Rank, Role, Status } from '../types';
+import { AppSettings, RosterCategory, Soldier, Rank, Role, Status, Backup } from '../types';
 import { getShortRole } from '../utils';
-import { Save, Upload, Calendar, MapPin, Layers, Plus, Trash2, Edit2, ShieldAlert, Check, X, Image as ImageIcon, Eye, EyeOff, FileSpreadsheet, Download, Lock, Key, Database, RefreshCw, AlertTriangle, Users, Info, Cloud, Palette } from 'lucide-react';
+import { Save, Upload, Calendar, MapPin, Layers, Plus, Trash2, Edit2, ShieldAlert, Check, X, Image as ImageIcon, Eye, EyeOff, FileSpreadsheet, Download, Lock, Key, Database, RefreshCw, AlertTriangle, Users, Info, Cloud, Palette, Clock } from 'lucide-react';
 
 export const Settings: React.FC = () => {
   console.log("Settings component loaded - v2");
@@ -26,6 +26,9 @@ export const Settings: React.FC = () => {
   // Estado para Teste de Conexão Supabase
   const [supabaseStatus, setSupabaseStatus] = useState<{ success?: boolean; message?: string }>({});
   const [isTestingSupabase, setIsTestingSupabase] = useState(false);
+
+  // Estado para Backups
+  const [backups, setBackups] = useState<Backup[]>(db.getBackups());
 
   const handleSave = () => {
     db.saveSettings(settings);
@@ -81,7 +84,7 @@ export const Settings: React.FC = () => {
 
   const removeCategory = (id: string) => {
     if (settings.rosterCategories.length <= 1) return alert("O sistema precisa de pelo menos uma categoria de escala ativa.");
-    if (!confirm("Atenção: Remover esta aba ocultará as escalas associadas a ela. Deseja continuar?")) return;
+    // Removido confirm para compatibilidade com iframe
     const up = { ...settings, rosterCategories: settings.rosterCategories.filter(c => c.id !== id) };
     setSettings(up);
   };
@@ -157,6 +160,24 @@ export const Settings: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.click();
   };
 
+  const handleManualBackup = async () => {
+    await db.createBackup('MANUAL');
+    setBackups(db.getBackups());
+    alert('Backup manual criado com sucesso!');
+  };
+
+  const handleDeleteBackup = async (id: string) => {
+    await db.deleteBackup(id);
+    setBackups(db.getBackups());
+  };
+
+  const handleRestoreBackup = async (backup: Backup) => {
+    // Removido confirm para compatibilidade com iframe
+    await db.restoreBackup(backup.data);
+    alert("Backup restaurado com sucesso! O sistema será recarregado.");
+    window.location.reload();
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -164,10 +185,8 @@ export const Settings: React.FC = () => {
     // Reset input value to allow selecting the same file again if needed
     e.target.value = '';
 
-    if (!confirm("ATENÇÃO CRÍTICA:\n\nAo restaurar este backup, TODOS os dados atuais (militares, escalas e configurações) serão SUBSTITUÍDOS pelos dados do arquivo.\n\nDeseja realmente continuar?")) {
-      return;
-    }
-
+    // Removido confirm para compatibilidade com iframe
+    
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
@@ -324,17 +343,88 @@ export const Settings: React.FC = () => {
            </button>
 
            <button 
-             onClick={handleImportBackupTrigger}
-             className="flex flex-col items-center justify-center p-6 border-2 border-orange-200 border-dashed rounded-2xl hover:bg-orange-50 hover:border-orange-500 transition-all group"
+             onClick={handleManualBackup}
+             className="flex flex-col items-center justify-center p-6 border-2 border-green-200 border-dashed rounded-2xl hover:bg-green-50 hover:border-green-500 transition-all group"
            >
-              <div className="bg-orange-100 p-4 rounded-full mb-3 group-hover:bg-orange-600 group-hover:text-white transition-colors text-orange-700">
-                 <RefreshCw size={32} />
+              <div className="bg-green-100 p-4 rounded-full mb-3 group-hover:bg-green-600 group-hover:text-white transition-colors text-green-700">
+                 <Plus size={32} />
               </div>
-              <h4 className="font-black text-pm-900 uppercase">Restaurar Backup</h4>
+              <h4 className="font-black text-pm-900 uppercase">Criar Backup Agora</h4>
               <p className="text-xs text-center text-gray-500 mt-1 px-4">
-                 Carrega um arquivo de backup salvo anteriormente. 
-                 <span className="font-bold text-red-500 block mt-1">ATENÇÃO: Substitui os dados atuais.</span>
+                 Cria um ponto de restauração manual no navegador.
               </p>
+           </button>
+        </div>
+
+        {/* Lista de Backups */}
+        <div className="mt-8">
+           <h4 className="text-sm font-black text-pm-800 uppercase mb-4 flex items-center">
+              <Clock size={18} className="mr-2"/> Histórico de Backups (Automáticos e Manuais)
+           </h4>
+           
+           {backups.length === 0 ? (
+             <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <p className="text-sm text-gray-400 font-medium">Nenhum backup encontrado.</p>
+             </div>
+           ) : (
+             <div className="space-y-3">
+                {backups.map(backup => (
+                  <div key={backup.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-pm-300 transition-all">
+                     <div className="flex items-center space-x-4">
+                        <div className={`p-2 rounded-lg ${backup.type === 'AUTO' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                           {backup.type === 'AUTO' ? <RefreshCw size={20}/> : <Save size={20}/>}
+                        </div>
+                        <div>
+                           <div className="flex items-center space-x-2">
+                              <span className="font-black text-pm-900 text-sm">{new Date(backup.date).toLocaleString('pt-BR')}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                                backup.type === 'AUTO' ? 'bg-blue-200 text-blue-800' : 'bg-green-200 text-green-800'
+                              }`}>
+                                 {backup.type === 'AUTO' ? 'Automático (Sexta)' : 'Manual'}
+                              </span>
+                           </div>
+                           <p className="text-[10px] text-gray-500 font-medium mt-0.5">
+                              {backup.data.soldiers.length} militares • {backup.data.rosters.length} escalas
+                           </p>
+                        </div>
+                     </div>
+                     
+                     <div className="flex items-center space-x-2">
+                        <button 
+                          onClick={() => handleRestoreBackup(backup)}
+                          className="flex items-center space-x-1 px-3 py-1.5 bg-pm-900 text-white rounded-lg text-xs font-black uppercase hover:bg-pm-950 transition-all"
+                        >
+                           <RefreshCw size={14}/> <span>Restaurar</span>
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteBackup(backup.id)}
+                          className="p-1.5 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          title="Excluir Backup"
+                        >
+                           <Trash2 size={16}/>
+                        </button>
+                     </div>
+                  </div>
+                ))}
+             </div>
+           )}
+           
+           <div className="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
+              <p className="text-[10px] text-yellow-800 font-bold leading-tight flex items-center">
+                 <Info size={14} className="mr-2 flex-shrink-0"/>
+                 O sistema realiza backups automáticos todas as sextas-feiras às 18h. Apenas os últimos 10 backups são mantidos.
+              </p>
+           </div>
+        </div>
+
+        <div className="mt-8 pt-6 border-t border-gray-100">
+           <h4 className="text-sm font-black text-pm-800 uppercase mb-4">Importar de Arquivo Externo</h4>
+           <button 
+             onClick={handleImportBackupTrigger}
+             className="w-full flex items-center justify-center p-4 border-2 border-orange-200 border-dashed rounded-2xl hover:bg-orange-50 hover:border-orange-500 transition-all group"
+           >
+              <RefreshCw size={20} className="mr-2 text-orange-600"/>
+              <span className="font-black text-pm-900 uppercase">Selecionar Arquivo .json para Restaurar</span>
               <input 
                 type="file" 
                 ref={fileInputRef} 

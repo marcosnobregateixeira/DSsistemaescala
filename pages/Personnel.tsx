@@ -87,11 +87,10 @@ export const Personnel: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Tem certeza que deseja excluir este militar e todas as suas informações?')) {
-      db.deleteSoldier(id);
-      setIsModalOpen(false); // Close modal if deleting from there
-      loadData();
-    }
+    // Removido confirm para compatibilidade com iframe
+    db.deleteSoldier(id);
+    setIsModalOpen(false); // Close modal if deleting from there
+    loadData();
   };
 
   const handleEdit = (soldier: Soldier) => {

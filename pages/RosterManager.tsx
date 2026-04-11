@@ -84,6 +84,7 @@ export const RosterManager: React.FC = () => {
   const [editingSectionIdx, setEditingSectionIdx] = useState<number | null>(null);
   const [editingRowPos, setEditingRowPos] = useState<{sIdx: number, rIdx: number} | null>(null);
   const [editingLegendId, setEditingLegendId] = useState<string | null>(null); // Shift ID para edição de legenda
+  const [rosterIdToDelete, setRosterIdToDelete] = useState<string | null>(null);
 
   const isAdmin = db.getCurrentUser().role === 'ADMIN';
 
@@ -595,15 +596,28 @@ export const RosterManager: React.FC = () => {
   const handleDeleteRoster = (targetId?: string) => {
     const idToDelete = targetId || selectedRoster?.id;
     if (!idToDelete) return;
+    setRosterIdToDelete(idToDelete);
+  };
+
+  const confirmDeleteRoster = async () => {
+    if (!rosterIdToDelete) return;
     
-    const rosterToDelete = rosters.find(r => r.id === idToDelete);
+    const id = rosterIdToDelete;
+    setRosterIdToDelete(null); // Fecha o modal imediatamente para dar feedback ao usuário
     
-    if (confirm(`ATENÇÃO: Deseja excluir PERMANENTEMENTE a escala "${rosterToDelete?.title || 'Selecionada'}"?`)) {
-      db.deleteRoster(idToDelete);
-      setRosters(prev => prev.filter(r => r.id !== idToDelete));
-      if (selectedRoster?.id === idToDelete) {
+    try {
+      await db.deleteRoster(id);
+      
+      // Se a escala excluída era a que estava selecionada, limpa a seleção
+      if (selectedRoster?.id === id) {
         setSelectedRoster(null);
       }
+      
+      // Opcional: Feedback de sucesso
+      // alert("Escala excluída com sucesso!");
+    } catch (error) {
+      console.error("Erro ao excluir escala:", error);
+      alert("Erro ao excluir escala no servidor. As alterações locais foram mantidas.");
     }
   };
 
@@ -617,7 +631,7 @@ export const RosterManager: React.FC = () => {
 
   const deleteRow = (sIdx: number, rIdx: number) => {
     if (!selectedRoster || !selectedRoster.sections) return;
-    if (!confirm("Excluir este bloco/setor? Todos os agendamentos nele serão perdidos.")) return;
+    // Removido confirm para compatibilidade com iframe
     const newSections = selectedRoster.sections.map((sec, idx) => 
       idx !== sIdx ? sec : { ...sec, rows: sec.rows.filter((_, i) => i !== rIdx) }
     );
@@ -632,7 +646,7 @@ export const RosterManager: React.FC = () => {
 
   const deleteSection = (sIdx: number) => {
     if (!selectedRoster || !selectedRoster.sections) return;
-    if (!confirm("Excluir bloco inteiro?")) return;
+    // Removido confirm para compatibilidade com iframe
     updateRoster({ ...selectedRoster, sections: selectedRoster.sections.filter((_, idx) => idx !== sIdx) });
   };
 
@@ -696,18 +710,20 @@ export const RosterManager: React.FC = () => {
     setIsSearchOpen(false);
   };
 
-  const removeShiftFromCell = (shift: any) => {
+  const removeShiftFromCell = (shiftToRemove: any) => {
     if (!selectedRoster) return;
-    const newShifts = selectedRoster.shifts.filter(s => s !== shift);
+    const newShifts = selectedRoster.shifts.filter(s => 
+      !(s.date === shiftToRemove.date && s.period === shiftToRemove.period && s.soldierId === shiftToRemove.soldierId)
+    );
     
     // Remove ANIV text if the removed shift had it
     let newSituationText = selectedRoster.situationText || '';
-    if (shift.note && shift.note.trim().toUpperCase().startsWith('ANIV')) {
-        const soldier = soldiers.find(s => s.id === shift.soldierId);
+    if (shiftToRemove.note && shiftToRemove.note.trim().toUpperCase().startsWith('ANIV')) {
+        const soldier = soldiers.find(s => s.id === shiftToRemove.soldierId);
         if (soldier) {
             const rank = getAbbreviatedRank(soldier.rank).toUpperCase();
             const name = soldier.name.toUpperCase();
-            const bDay = soldier.birthday ? new Date(soldier.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00');
+            const bDay = soldier.birthday ? new Date(soldier.birthday + 'T12:00:00') : new Date(shiftToRemove.date + 'T12:00:00');
             const day = String(bDay.getDate()).padStart(2, '0');
             const month = String(bDay.getMonth() + 1).padStart(2, '0');
             const shiftDate = `${day}/${month}`;
@@ -840,7 +856,7 @@ export const RosterManager: React.FC = () => {
   const handleRemoveColumn = (index: number) => {
     if (!selectedRoster || !selectedRoster.customHeaders) return;
     if (selectedRoster.customHeaders.length <= 1) return alert("A tabela deve ter pelo menos uma coluna.");
-    if (!confirm("Excluir esta coluna?")) return;
+    // Removido confirm para compatibilidade com iframe
     
     const newHeaders = [...selectedRoster.customHeaders];
     newHeaders.splice(index, 1);
@@ -1497,7 +1513,7 @@ export const RosterManager: React.FC = () => {
                                                     {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
                                                 </div>
                                              )}
-                                             <div className={`flex flex-col space-y-1 ${shiftsInCell.length > 0 ? 'min-h-[30px]' : ''}`}>
+                                             <div className={`flex flex-col space-y-1 group ${shiftsInCell.length > 0 ? 'min-h-[30px]' : ''}`}>
                                                 {shiftsInCell.map((shift, i) => {
                                                    const sdr = soldiers.find(s => s.id === shift.soldierId);
                                                    const shiftId = `${shift.date}-${shift.period}-${shift.soldierId}`;
@@ -1507,7 +1523,7 @@ export const RosterManager: React.FC = () => {
                                                    if (shift.isHidden && !isAdmin) return null;
 
                                                    return (
-                                                      <div key={i} className={`text-[7pt] font-bold uppercase leading-tight relative group/item text-black ${shift.isHidden ? 'opacity-50 print:hidden' : ''}`}>
+                                                      <div key={i} className={`text-[7pt] font-bold uppercase leading-tight relative group/item text-black pr-4 ${shift.isHidden ? 'opacity-50 print:hidden' : ''}`}>
                                                          <div className={shift.isHidden ? 'line-through text-gray-500' : ''}>
                                                             {getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort}
                                                             {shift.isHidden && <span className="ml-1 text-[5pt] text-red-500 no-underline">(OCULTO)</span>}
@@ -1538,7 +1554,7 @@ export const RosterManager: React.FC = () => {
                                                          )}
 
                                                          {isAdmin && (
-                                                            <div className="absolute -right-1 -top-1 flex space-x-0.5 opacity-0 group-hover/item:opacity-100">
+                                                            <div className="absolute right-0 top-0 flex space-x-0.5 z-50 print:hidden">
                                                                {(isHoliday || isOptional) && (
                                                                   <button 
                                                                     onClick={(e) => { e.stopPropagation(); toggleShiftVisibility(shift); }}
@@ -1563,7 +1579,7 @@ export const RosterManager: React.FC = () => {
                                                 {isAdmin && (
                                                    <button 
                                                      onClick={() => { setActiveSearchCell({date: dStr, period: row.id}); setIsSearchOpen(true); }}
-                                                     className="opacity-0 group-hover:opacity-100 self-center text-green-600 bg-green-50 rounded-full p-1 hover:bg-green-100 transition-all mt-1"
+                                                     className="self-center text-green-600 bg-green-50 rounded-full p-1 hover:bg-green-100 transition-all mt-1"
                                                      title="Adicionar Militar"
                                                    >
                                                       <Plus size={12}/>
@@ -1710,7 +1726,7 @@ export const RosterManager: React.FC = () => {
                            </button>
                        )}
 
-                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo' || selectedRoster.type === 'cat_ast') && (
+                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo' || selectedRoster.type === 'cat_ast' || selectedRoster.type === 'cat_adm') && (
                          <div className="flex items-center space-x-4 mr-4">
                            <label className="flex items-center space-x-2 cursor-pointer group">
                               <div 
@@ -1734,7 +1750,7 @@ export const RosterManager: React.FC = () => {
                          </div>
                        )}
 
-                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo' || selectedRoster.type === 'cat_ast') && (
+                       {(selectedRoster.type === 'cat_psi' || selectedRoster.type === 'cat_odo' || selectedRoster.type === 'cat_ast' || selectedRoster.type === 'cat_adm') && (
                          <label className="flex items-center space-x-2 cursor-pointer group mr-4">
                             <div 
                               onClick={() => updateRoster({...selectedRoster, hideWeekends: !selectedRoster.hideWeekends})}
@@ -1915,7 +1931,7 @@ export const RosterManager: React.FC = () => {
                                                 const legend = shift.note || "";
 
                                                  return (
-                                                   <div key={idx} className={`w-full relative group/item text-black ${shift.isHidden ? 'opacity-50 print:hidden' : ''}`} style={{ fontFamily: appearance.fontFamily }}>
+                                                   <div key={idx} className={`w-full relative group text-black ${shift.isHidden ? 'opacity-50 print:hidden' : ''}`} style={{ fontFamily: appearance.fontFamily }}>
                                                      <div className={`${getFontSizeClass(appearance.fontSize)} ${getTextCaseClass(appearance.textCase)} font-bold text-center leading-none truncate w-full px-0.5 ${shift.isHidden ? 'line-through text-gray-500' : ''}`}>
                                                        {getAbbreviatedRank(sdr.rank)} {sdr.matricula || ''} {sdr.name.split(' ')[0]} {sdr.roleShort}
                                                        {shift.isHidden && <span className="ml-1 text-[5pt] text-red-500 no-underline">(OCULTO)</span>}
@@ -1946,7 +1962,7 @@ export const RosterManager: React.FC = () => {
                                                      </div>
    
                                                      {isAdmin && (
-                                                        <div className="absolute -right-1 -top-1 flex space-x-0.5 opacity-0 group-hover/item:opacity-100">
+                                                        <div className="absolute -right-1 -top-1 flex space-x-0.5 opacity-40 group-hover/item:opacity-100 transition-opacity z-30">
                                                            {(isHoliday || isOptional) && (
                                                               <button 
                                                                 onClick={(e) => { e.stopPropagation(); toggleShiftVisibility(shift); }}
@@ -2222,6 +2238,43 @@ export const RosterManager: React.FC = () => {
           roster={selectedRoster} 
           onClose={() => setShowPrint(false)} 
         />
+      )}
+
+      {/* Modal de Confirmação de Exclusão de Escala */}
+      {rosterIdToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-md w-full mx-4 border border-gray-100 dark:border-slate-700 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center space-x-4 mb-6">
+              <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center text-red-600 dark:text-red-400">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-pm-900 dark:text-white uppercase">Confirmar Exclusão</h3>
+                <p className="text-xs font-bold text-gray-400 uppercase">Ação Irreversível</p>
+              </div>
+            </div>
+            
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-8 leading-relaxed">
+              Deseja excluir permanentemente a escala <span className="font-black text-red-600 dark:text-red-400">"{rosters.find(r => r.id === rosterIdToDelete)?.title}"</span>? 
+              Todos os dados e agendamentos vinculados a ela serão perdidos para sempre.
+            </p>
+            
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => setRosterIdToDelete(null)}
+                className="flex-1 px-4 py-3 text-xs font-black uppercase text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-all border border-gray-200 dark:border-slate-600"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmDeleteRoster}
+                className="flex-1 px-4 py-3 text-xs font-black uppercase text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all shadow-lg shadow-red-600/20"
+              >
+                Excluir Agora
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

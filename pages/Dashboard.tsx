@@ -227,8 +227,7 @@ export const Dashboard: React.FC = () => {
 
   const handleDeleteTransaction = (tId: string) => {
     if (!selectedSoldierForBank) return;
-    if (!confirm("Deseja excluir este registro do histórico?")) return;
-
+    // Removido confirm para compatibilidade com iframe
     const updatedHistory = (selectedSoldierForBank.bankHistory || []).filter(t => t.id !== tId);
     const updatedSoldier = { ...selectedSoldierForBank, bankHistory: updatedHistory };
 
@@ -262,8 +261,7 @@ export const Dashboard: React.FC = () => {
 
   const handleConfirmExtraList = () => {
     if (previewExtraList.length === 0) return;
-    if (!confirm(`Confirma a escala de ${previewExtraList.length} militares? Eles serão movidos para o final da fila.`)) return;
-
+    // Removido confirm para compatibilidade com iframe
     const currentMax = Math.max(...soldiers.map(s => s.orderExtra || 0), 0);
     
     let nextOrder = currentMax + 1;
@@ -296,8 +294,7 @@ export const Dashboard: React.FC = () => {
 
   const handleResetExtraQueue = () => {
     if (!isAdmin) return;
-    if (!confirm("ATENÇÃO: Isso irá reiniciar a ordem de TODOS os militares baseando-se na antiguidade (Posto/Graduação + Nome). Deseja continuar?")) return;
-
+    // Removido confirm para compatibilidade com iframe
     const sortedByRank = [...soldiers].sort((a, b) => {
        const wA = getRankWeight(a.rank);
        const wB = getRankWeight(b.rank);

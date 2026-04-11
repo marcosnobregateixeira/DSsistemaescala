@@ -224,3 +224,15 @@ export interface User {
   username?: string; 
   role?: UserRole; 
 }
+
+export interface Backup {
+  id: string;
+  date: string;
+  data: {
+    soldiers: Soldier[];
+    rosters: Roster[];
+    app_settings: AppSettings;
+    extra_duty_history: ExtraDutyHistory[];
+  };
+  type: 'AUTO' | 'MANUAL';
+}

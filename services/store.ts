@@ -1,4 +1,4 @@
-import { Soldier, Roster, AppSettings, User, UserRole, Rank, Role, Status, RosterCategory, ExtraDutyHistory, Cadre, TeamMapping, ColorPalette } from '../types';
+import { Soldier, Roster, AppSettings, User, UserRole, Rank, Role, Status, RosterCategory, ExtraDutyHistory, Cadre, TeamMapping, ColorPalette, Backup } from '../types';
 import { supabase } from './supabase';
 
 const DEFAULT_PALETTES: ColorPalette[] = [
@@ -179,6 +179,7 @@ class StoreService {
   constructor() {
     // Inicialização puramente local
     this.initSupabaseSync();
+    this.checkAndTriggerAutoBackup();
   }
 
   // --- LOCAL STORE LOGIC ---
@@ -370,11 +371,15 @@ class StoreService {
     this.setLocal('rosters', rosters);
 
     if (supabase) {
-      const { data } = await supabase.from('rosters').select('id, data');
-      const existing = data?.find((row: any) => row.data.id === roster.id);
+      // Otimização: Busca apenas o ID interno do Supabase filtrando pelo ID da escala no JSONB
+      const { data: existingData } = await supabase
+        .from('rosters')
+        .select('id')
+        .eq('data->>id', roster.id)
+        .maybeSingle();
       
-      if (existing) {
-        await supabase.from('rosters').update({ data: roster, updated_at: new Date() }).eq('id', existing.id);
+      if (existingData) {
+        await supabase.from('rosters').update({ data: roster, updated_at: new Date() }).eq('id', existingData.id);
       } else {
         await supabase.from('rosters').insert({ data: roster });
       }
@@ -385,10 +390,15 @@ class StoreService {
     this.setLocal('rosters', this.getRosters().filter(r => r.id !== id));
 
     if (supabase) {
-      const { data } = await supabase.from('rosters').select('id, data');
-      const existing = data?.find((row: any) => row.data.id === id);
-      if (existing) {
-        await supabase.from('rosters').delete().eq('id', existing.id);
+      // Otimização: Busca apenas o ID interno do Supabase filtrando pelo ID da escala no JSONB
+      const { data: existingData } = await supabase
+        .from('rosters')
+        .select('id')
+        .eq('data->>id', id)
+        .maybeSingle();
+
+      if (existingData) {
+        await supabase.from('rosters').delete().eq('id', existingData.id);
       }
     }
   }
@@ -530,6 +540,56 @@ class StoreService {
   }
 
   // --- BACKUP / RESTORE ---
+
+  getBackups(): Backup[] {
+    return this.getLocal<Backup[]>('backups') || [];
+  }
+
+  async createBackup(type: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<Backup> {
+    const backup: Backup = {
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      type,
+      data: {
+        soldiers: this.getSoldiers(),
+        rosters: this.getRosters(),
+        app_settings: this.getSettings(),
+        extra_duty_history: this.getExtraDutyHistory()
+      }
+    };
+
+    const backups = this.getBackups();
+    backups.unshift(backup);
+    
+    // Keep only last 10 backups to save space
+    const limitedBackups = backups.slice(0, 10);
+    this.setLocal('backups', limitedBackups);
+    
+    return backup;
+  }
+
+  async deleteBackup(id: string): Promise<void> {
+    const backups = this.getBackups();
+    this.setLocal('backups', backups.filter(b => b.id !== id));
+  }
+
+  private checkAndTriggerAutoBackup() {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 5 = Friday
+    const hour = now.getHours();
+    
+    // Check if it's Friday (5) and after 18:00
+    if (dayOfWeek === 5 && hour >= 18) {
+      const lastAutoBackupDate = localStorage.getItem('last_auto_backup_date');
+      const todayStr = now.toISOString().split('T')[0];
+      
+      if (lastAutoBackupDate !== todayStr) {
+        console.log('Triggering automatic Friday backup...');
+        this.createBackup('AUTO');
+        localStorage.setItem('last_auto_backup_date', todayStr);
+      }
+    }
+  }
 
   async restoreBackup(data: any): Promise<void> {
     // 1. Restore to LocalStorage
