@@ -25,7 +25,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
 
   const isExtra = roster.type === 'cat_extra';
   const isOdo = roster.type === 'cat_odo';
-  const hideFirstCol = isOdo || roster.type === 'cat_amb' || roster.type === 'cat_psi' || roster.type === 'cat_ast';
+  const hideFirstCol = isOdo || roster.type === 'cat_amb' || roster.type === 'cat_psi' || roster.type === 'cat_ast' || roster.title?.toUpperCase().includes('OFICIAL DE DIA');
   
   const isPsiOrAst = roster.type === 'cat_psi' || roster.type === 'cat_ast' || isOdo || (roster.type === 'cat_adm' && isLongScale);
   
@@ -502,7 +502,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                     <table className="w-full h-auto border-collapse table-fixed" style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
                        <thead>
                           <tr className="h-auto">
-                             <th className="border border-black bg-[#cbd5b0] p-1.5 w-36"></th>
+                             {!hideFirstCol && <th className="border border-black bg-[#cbd5b0] p-1.5 w-36"></th>}
                              {dates.map(d => {
                                 const dStr = d.toISOString().split('T')[0];
                                 const isHoliday = roster.holidays?.includes(dStr);
@@ -530,9 +530,11 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                .map(row => ({ row, sec }))
                              ).map(({ row, sec }) => (
                              <tr key={row.id}>
-                                 <td className={`border border-black ${row.bgClass || sec.bgClass || 'bg-[#cbd5b0]'} p-1.5 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
-                                   {row.label}
-                                </td>
+                                 {!hideFirstCol && (
+                                   <td className={`border border-black ${row.bgClass || sec.bgClass || 'bg-[#cbd5b0]'} p-1.5 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
+                                     {row.label}
+                                   </td>
+                                 )}
                                 {dates.map(d => {
                                    const dStr = d.toISOString().split('T')[0];
                                    const isHoliday = roster.holidays?.includes(dStr);
