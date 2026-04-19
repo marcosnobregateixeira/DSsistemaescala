@@ -63,6 +63,8 @@ function App() {
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
           }
+        }).catch(err => {
+          console.error('Supabase getSession Error:', err);
         });
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {

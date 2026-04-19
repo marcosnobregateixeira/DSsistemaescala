@@ -175,14 +175,24 @@ const INITIAL_SOLDIERS: Soldier[] = [
 
 class StoreService {
   private listeners: (() => void)[] = [];
+  private isCloudBypassed: boolean = false;
   
   constructor() {
+    // Check if cloud was bypassed in this session
+    this.isCloudBypassed = sessionStorage.getItem('supabase_bypassed') === 'true';
+    
     // Inicialização puramente local
     this.initSupabaseSync();
     this.checkAndTriggerAutoBackup();
   }
 
   // --- LOCAL STORE LOGIC ---
+
+  private setCloudBypassed() {
+    this.isCloudBypassed = true;
+    sessionStorage.setItem('supabase_bypassed', 'true');
+    console.warn('Supabase: Cloud Sync desativado para esta sessão devido a erros de conexão.');
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.push(listener);
@@ -208,9 +218,21 @@ class StoreService {
   // --- SUPABASE SYNC LOGIC ---
 
   private async initSupabaseSync() {
-    if (!supabase) return;
+    if (!supabase || this.isCloudBypassed) return;
 
     try {
+      // Test connectivity first with a simple check
+      const { error: connectionError } = await supabase.from('app_settings').select('id').limit(1);
+      
+      if (connectionError) {
+        if (connectionError.message.includes('fetch') || connectionError.message.includes('NetworkError') || connectionError.message.includes('Failed to fetch')) {
+          this.setCloudBypassed();
+          console.warn('Supabase: Falha de rede ao conectar. O modo offline será mantido.');
+          return;
+        }
+        console.error('Supabase Error:', connectionError);
+      }
+
       // Sync Soldiers
       const { data: soldiersData } = await supabase.from('soldiers').select('data');
       if (soldiersData && soldiersData.length > 0) {
@@ -238,8 +260,11 @@ class StoreService {
         this.setLocal('extra_duty_history', history);
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error syncing with Supabase:', error);
+      if (error.message && (error.message.includes('fetch') || error.message.includes('NetworkError'))) {
+        console.warn('Supabase: Erro de rede detectado durante sincronização inicial.');
+      }
     }
   }
 
@@ -292,10 +317,14 @@ class StoreService {
 
   async saveSettings(settings: AppSettings): Promise<void> {
     this.setLocal('app_settings', settings);
-    if (supabase) {
-      // Delete old settings to keep only one active configuration row
-      await supabase.from('app_settings').delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
-      await supabase.from('app_settings').insert({ data: settings });
+    if (supabase && !this.isCloudBypassed) {
+      try {
+        // Delete old settings to keep only one active configuration row
+        await supabase.from('app_settings').delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
+        await supabase.from('app_settings').insert({ data: settings });
+      } catch (err) {
+        console.warn('Erro ao salvar settings na nuvem:', err);
+      }
     }
   }
 
@@ -315,34 +344,18 @@ class StoreService {
     
     this.setLocal('soldiers', soldiers);
 
-    if (supabase) {
-      // Upsert based on ID stored in the JSON data column requires a unique constraint or manual check
-      // For simplicity in this migration, we delete and insert. 
-      // In a real production app, we would use a proper relational schema.
-      // Here we simulate document store behavior:
-      
-      // First try to delete if exists (by matching ID inside JSON is hard in simple SQL without specific index)
-      // So we will just rely on the client-side ID for now and assume we are syncing the whole object.
-      // Ideally, we should have a column 'ref_id' in the table.
-      
-      // Let's use a simpler approach: Delete all and re-insert is too heavy.
-      // Let's try to find the row with this data->id.
-      
-      // Actually, for this migration to be robust without changing schema too much:
-      // We will add a 'ref_id' column to the schema in a future step if performance is bad.
-      // For now, let's just insert a new record for every save is bad.
-      
-      // Better approach:
-      // We will use the 'id' column of the table as the soldier.id if possible, but soldier.id is string (maybe not UUID).
-      // Let's just fetch all, find the one to update, and update it.
-      
-      const { data } = await supabase.from('soldiers').select('id, data');
-      const existing = data?.find((row: any) => row.data.id === soldier.id);
-      
-      if (existing) {
-        await supabase.from('soldiers').update({ data: soldier, updated_at: new Date() }).eq('id', existing.id);
-      } else {
-        await supabase.from('soldiers').insert({ data: soldier });
+    if (supabase && !this.isCloudBypassed) {
+      try {
+        const { data } = await supabase.from('soldiers').select('id, data');
+        const existing = data?.find((row: any) => row.data.id === soldier.id);
+        
+        if (existing) {
+          await supabase.from('soldiers').update({ data: soldier, updated_at: new Date() }).eq('id', existing.id);
+        } else {
+          await supabase.from('soldiers').insert({ data: soldier });
+        }
+      } catch (err) {
+        console.warn('Erro ao salvar soldado na nuvem:', err);
       }
     }
   }
@@ -370,18 +383,22 @@ class StoreService {
     
     this.setLocal('rosters', rosters);
 
-    if (supabase) {
-      // Otimização: Busca apenas o ID interno do Supabase filtrando pelo ID da escala no JSONB
-      const { data: existingData } = await supabase
-        .from('rosters')
-        .select('id')
-        .eq('data->>id', roster.id)
-        .maybeSingle();
-      
-      if (existingData) {
-        await supabase.from('rosters').update({ data: roster, updated_at: new Date() }).eq('id', existingData.id);
-      } else {
-        await supabase.from('rosters').insert({ data: roster });
+    if (supabase && !this.isCloudBypassed) {
+      try {
+        // Otimização: Busca apenas o ID interno do Supabase filtrando pelo ID da escala no JSONB
+        const { data: existingData } = await supabase
+          .from('rosters')
+          .select('id')
+          .eq('data->>id', roster.id)
+          .maybeSingle();
+        
+        if (existingData) {
+          await supabase.from('rosters').update({ data: roster, updated_at: new Date() }).eq('id', existingData.id);
+        } else {
+          await supabase.from('rosters').insert({ data: roster });
+        }
+      } catch (err) {
+        console.warn('Erro ao salvar escala na nuvem:', err);
       }
     }
   }
@@ -422,10 +439,9 @@ class StoreService {
   // --- AUTHENTICATION LOGIC (SUPABASE) ---
 
   async login(email: string, password: string): Promise<{ user: User | null, error: string | null }> {
-    if (!supabase) {
+    if (!supabase || this.isCloudBypassed) {
       // Fallback para modo offline (apenas para desenvolvimento local sem Supabase)
-      // Em produção, isso deve ser desabilitado ou removido.
-      console.warn('Supabase não configurado. Usando autenticação local insegura (apenas dev).');
+      console.warn('Usando autenticação local (Offline Mode).');
       const mockUser: User = { id: 'local-admin', username: 'Administrador (Offline)', role: 'ADMIN' };
       sessionStorage.setItem('current_user', JSON.stringify(mockUser));
       this.notify();
@@ -440,13 +456,18 @@ class StoreService {
 
       if (error) {
         console.error('Erro de autenticação:', error.message);
-        if (error.message.includes("Invalid login credentials")) {
+        const msg = error.message || '';
+        if (msg.includes('fetch') || msg.includes('NetworkError') || msg.includes('Failed to fetch')) {
+             this.setCloudBypassed();
+             return { user: null, error: 'Erro de conexão com o servidor. Tente novamente ou use o modo offline.' };
+        }
+        if (msg.includes("Invalid login credentials")) {
              return { user: null, error: 'Credenciais inválidas. Se for o primeiro acesso, use "Esqueci a senha" com a Chave Mestra para criar a conta.' };
         }
-        if (error.message.includes("Email not confirmed")) {
+        if (msg.includes("Email not confirmed")) {
              return { user: null, error: 'Email não confirmado. Verifique sua caixa de entrada.' };
         }
-        return { user: null, error: 'Erro: ' + error.message };
+        return { user: null, error: 'Erro de Autenticação: ' + msg };
       }
 
       if (data.user) {
@@ -477,7 +498,18 @@ class StoreService {
       
       return { user: null, error: 'Erro desconhecido ao fazer login.' };
     } catch (err: any) {
-      return { user: null, error: err.message || 'Erro de conexão.' };
+      const message = err.message || '';
+      console.error('Catch Login Error:', err);
+      
+      if (message.includes('fetch') || message.includes('NetworkError') || message.includes('Failed to fetch')) {
+        this.setCloudBypassed();
+        return { 
+          user: null, 
+          error: 'Erro de conexão: Não foi possível alcançar o servidor. Experimente recarregar a página ou usar o modo offline.' 
+        };
+      }
+      
+      return { user: null, error: message || 'Erro de conexão inesperado.' };
     }
   }
 
@@ -514,7 +546,7 @@ class StoreService {
   }
 
   async resetAdminPassword(email: string, newPassword: string): Promise<void> {
-    if (supabase) {
+    if (supabase && !this.isCloudBypassed) {
         // Tenta criar o usuário (caso não exista)
         const { data, error } = await supabase.auth.signUp({
             email,
@@ -536,6 +568,8 @@ class StoreService {
         if (data.user && !data.session) {
              throw new Error("Usuário criado! Verifique seu email (" + email + ") para confirmar o cadastro antes de logar.");
         }
+    } else {
+        throw new Error("O modo offline não permite redefinição de senha via servidor. Verifique sua conexão.");
     }
   }
 
@@ -558,13 +592,18 @@ class StoreService {
       }
     };
 
-    const backups = this.getBackups();
+    // Obter backups atuais da memória local
+    const currentBackupsData = localStorage.getItem('backups');
+    let backups: Backup[] = currentBackupsData ? JSON.parse(currentBackupsData) : [];
+    
+    // Adicionar no início
     backups.unshift(backup);
     
-    // Keep only last 10 backups to save space
-    const limitedBackups = backups.slice(0, 10);
-    this.setLocal('backups', limitedBackups);
+    // Manter apenas os 5 últimos
+    const limitedBackups = backups.slice(0, 5);
+    localStorage.setItem('backups', JSON.stringify(limitedBackups));
     
+    this.notify();
     return backup;
   }
 

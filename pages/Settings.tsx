@@ -30,6 +30,14 @@ export const Settings: React.FC = () => {
   // Estado para Backups
   const [backups, setBackups] = useState<Backup[]>(db.getBackups());
 
+  // Sincronizar backups reativamente
+  React.useEffect(() => {
+    const unsub = db.subscribe(() => {
+      setBackups(db.getBackups());
+    });
+    return unsub;
+  }, []);
+
   const handleSave = () => {
     db.saveSettings(settings);
     alert('Configurações do sistema gravadas com sucesso!');
@@ -362,14 +370,26 @@ export const Settings: React.FC = () => {
               <Clock size={18} className="mr-2"/> Histórico de Backups (Automáticos e Manuais)
            </h4>
            
-           {backups.length === 0 ? (
-             <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                <p className="text-sm text-gray-400 font-medium">Nenhum backup encontrado.</p>
-             </div>
-           ) : (
-             <div className="space-y-3">
-                {backups.map(backup => (
-                  <div key={backup.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-pm-300 transition-all">
+           <div className="space-y-3">
+              {[...Array(5)].map((_, index) => {
+                const backup = backups[index];
+                if (!backup) {
+                  return (
+                    <div key={`empty-${index}`} className="flex items-center justify-between p-4 bg-gray-50/50 rounded-xl border border-dashed border-gray-200 opacity-60">
+                       <div className="flex items-center space-x-4">
+                          <div className="p-2 rounded-lg bg-gray-100 text-gray-400">
+                             <Database size={20}/>
+                          </div>
+                          <div>
+                             <span className="text-xs font-bold text-gray-400 uppercase">Slot de Backup Disponível</span>
+                             <p className="text-[10px] text-gray-300 font-medium">Nenhum registro nesta posição</p>
+                          </div>
+                       </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={backup.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:border-pm-300 transition-all">
                      <div className="flex items-center space-x-4">
                         <div className={`p-2 rounded-lg ${backup.type === 'AUTO' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                            {backup.type === 'AUTO' ? <RefreshCw size={20}/> : <Save size={20}/>}
@@ -380,7 +400,7 @@ export const Settings: React.FC = () => {
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                                 backup.type === 'AUTO' ? 'bg-blue-200 text-blue-800' : 'bg-green-200 text-green-800'
                               }`}>
-                                 {backup.type === 'AUTO' ? 'Automático (Sexta)' : 'Manual'}
+                                 {backup.type === 'AUTO' ? 'Automático' : 'Manual'}
                               </span>
                            </div>
                            <p className="text-[10px] text-gray-500 font-medium mt-0.5">
@@ -392,7 +412,7 @@ export const Settings: React.FC = () => {
                      <div className="flex items-center space-x-2">
                         <button 
                           onClick={() => handleRestoreBackup(backup)}
-                          className="flex items-center space-x-1 px-3 py-1.5 bg-pm-900 text-white rounded-lg text-xs font-black uppercase hover:bg-pm-950 transition-all"
+                          className="flex items-center space-x-1 px-3 py-1.5 bg-pm-900 text-white rounded-lg text-xs font-black uppercase hover:bg-pm-950 transition-all shadow-sm active:scale-95"
                         >
                            <RefreshCw size={14}/> <span>Restaurar</span>
                         </button>
@@ -405,14 +425,14 @@ export const Settings: React.FC = () => {
                         </button>
                      </div>
                   </div>
-                ))}
-             </div>
-           )}
+                );
+              })}
+           </div>
            
            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
               <p className="text-[10px] text-yellow-800 font-bold leading-tight flex items-center">
                  <Info size={14} className="mr-2 flex-shrink-0"/>
-                 O sistema realiza backups automáticos todas as sextas-feiras às 18h. Apenas os últimos 10 backups são mantidos.
+                 O sistema realiza backups automáticos todas as sextas-feiras às 18h. Apenas os últimos 5 backups são mantidos.
               </p>
            </div>
         </div>
