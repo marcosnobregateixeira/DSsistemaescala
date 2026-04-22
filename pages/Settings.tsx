@@ -367,7 +367,12 @@ export const Settings: React.FC = () => {
         {/* Lista de Backups */}
         <div className="mt-8">
            <h4 className="text-sm font-black text-pm-800 uppercase mb-4 flex items-center">
-              <Clock size={18} className="mr-2"/> Histórico de Backups (Automáticos e Manuais)
+              <Clock size={18} className="mr-2"/> Histórico de Backups <button onClick={async () => {
+    alert('Iniciando sincronização...');
+    await db.initSupabaseSync();
+    alert('Sincronização concluída!');
+    window.location.reload();
+  }} className="ml-4 text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full uppercase font-bold hover:bg-orange-200">Sync</button>
            </h4>
            
            <div className="space-y-3">

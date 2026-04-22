@@ -217,7 +217,7 @@ class StoreService {
 
   // --- SUPABASE SYNC LOGIC ---
 
-  private async initSupabaseSync() {
+  public async initSupabaseSync() {
     if (!supabase || this.isCloudBypassed) return;
 
     try {
