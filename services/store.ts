@@ -217,32 +217,40 @@ class StoreService {
 
   // --- SUPABASE SYNC LOGIC ---
 
-  public async initSupabaseSync() {
-    if (!supabase || this.isCloudBypassed) return;
+  public async initSupabaseSync(): Promise<boolean> {
+    if (!supabase || this.isCloudBypassed) return false;
 
     try {
+      console.log('Sincronizando com Supabase...');
       // Test connectivity first with a simple check
       const { error: connectionError } = await supabase.from('app_settings').select('id').limit(1);
       
       if (connectionError) {
         if (connectionError.message.includes('fetch') || connectionError.message.includes('NetworkError') || connectionError.message.includes('Failed to fetch')) {
           this.setCloudBypassed();
-          console.warn('Supabase: Falha de rede ao conectar. O modo offline será mantido.');
-          return;
+          console.warn('Supabase: Falha de rede ao conectar. Operando em modo offline.');
+          return false;
         }
-        console.error('Supabase Error:', connectionError);
+        console.error('Supabase Connection Error:', connectionError);
+        return false;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn('Supabase: Nenhum usuário autenticado. Sincronização ignorada.');
+        return false;
       }
 
       // Sync Soldiers
       const { data: soldiersData } = await supabase.from('soldiers').select('data');
-      if (soldiersData && soldiersData.length > 0) {
+      if (soldiersData) {
         const soldiers = soldiersData.map((row: any) => row.data);
         this.setLocal('soldiers', soldiers);
       }
 
       // Sync Rosters
       const { data: rostersData } = await supabase.from('rosters').select('data');
-      if (rostersData && rostersData.length > 0) {
+      if (rostersData) {
         const rosters = rostersData.map((row: any) => row.data);
         this.setLocal('rosters', rosters);
       }
@@ -255,16 +263,18 @@ class StoreService {
 
       // Sync Extra Duty History
       const { data: historyData } = await supabase.from('extra_duty_history').select('data');
-      if (historyData && historyData.length > 0) {
+      if (historyData) {
         const history = historyData.map((row: any) => row.data);
         this.setLocal('extra_duty_history', history);
       }
 
+      console.log('Sincronização concluída com sucesso.');
+      this.notify();
+      return true;
+
     } catch (error: any) {
       console.error('Error syncing with Supabase:', error);
-      if (error.message && (error.message.includes('fetch') || error.message.includes('NetworkError'))) {
-        console.warn('Supabase: Erro de rede detectado durante sincronização inicial.');
-      }
+      return false;
     }
   }
 
@@ -492,6 +502,10 @@ class StoreService {
           role
         };
         sessionStorage.setItem('current_user', JSON.stringify(user));
+        
+        // Sincronizar após login bem-sucedido
+        await this.initSupabaseSync();
+        
         this.notify();
         return { user, error: null };
       }

@@ -30,7 +30,7 @@ if (!isConfigured) {
 export const supabase = isConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        storage: sessionStorage,
+        storage: localStorage,
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true

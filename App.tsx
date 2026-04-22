@@ -62,6 +62,9 @@ function App() {
              };
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
+             
+             // Forçar sincronização com a nuvem após restaurar sessão
+             db.initSupabaseSync();
           }
         }).catch(err => {
           console.error('Supabase getSession Error:', err);
@@ -91,6 +94,9 @@ function App() {
              };
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
+             
+             // Sincronizar ao mudar estado de auth (login/refresh)
+             db.initSupabaseSync();
           } else {
              sessionStorage.removeItem('current_user');
              setUser(null);
