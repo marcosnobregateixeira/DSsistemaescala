@@ -368,14 +368,14 @@ export const Settings: React.FC = () => {
         <div className="mt-8">
            <h4 className="text-sm font-black text-pm-800 uppercase mb-4 flex items-center">
               <Clock size={18} className="mr-2"/> Histórico de Backups <button onClick={async () => {
-    const success = await db.initSupabaseSync();
+    const success = await db.initSupabaseSync(true); // Chamada forçada (true) limpa bypass de erro
     if (success) {
-      alert('Sincronização concluída com sucesso!');
+      alert('Sincronização concluída com sucesso! Dados atualizados da nuvem.');
       window.location.reload();
     } else {
-      alert('Falha na sincronização. Verifique se você está logado no sistema e tem conexão com a internet.');
+      alert('Falha na sincronização.\n\nVerifique:\n1. Se você está logado.\n2. Se há conexão com a internet.\n3. Se o outro computador realmente terminou de salvar os dados na nuvem.');
     }
-  }} className="ml-4 text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full uppercase font-bold hover:bg-orange-200">Sincronizar Agora</button>
+  }} className="ml-4 text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full uppercase font-bold hover:bg-orange-200 transition-all active:scale-95">Sincronizar Agora</button>
            </h4>
            
            <div className="space-y-3">

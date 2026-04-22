@@ -217,63 +217,78 @@ class StoreService {
 
   // --- SUPABASE SYNC LOGIC ---
 
-  public async initSupabaseSync(): Promise<boolean> {
-    if (!supabase || this.isCloudBypassed) return false;
+  public async initSupabaseSync(force: boolean = false): Promise<boolean> {
+    if (!supabase) return false;
+
+    // Se for um sync manual forçado, limpa o bypass de erro de rede
+    if (force) {
+      this.isCloudBypassed = false;
+      sessionStorage.removeItem('supabase_bypassed');
+    }
+
+    if (this.isCloudBypassed) return false;
 
     try {
       console.log('Sincronizando com Supabase...');
-      // Test connectivity first with a simple check
+      
+      // 1. Verificar Sessão
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.error('Erro ao obter sessão Supabase:', sessionError);
+        return false;
+      }
+      
+      if (!session) {
+        console.warn('Supabase: Nenhum usuário autenticado para sincronização.');
+        return false;
+      }
+
+      // 2. Testar conectividade e permissões (RLS)
       const { error: connectionError } = await supabase.from('app_settings').select('id').limit(1);
       
       if (connectionError) {
         if (connectionError.message.includes('fetch') || connectionError.message.includes('NetworkError') || connectionError.message.includes('Failed to fetch')) {
           this.setCloudBypassed();
-          console.warn('Supabase: Falha de rede ao conectar. Operando em modo offline.');
+          console.warn('Supabase: Falha de rede ao conectar.');
           return false;
         }
-        console.error('Supabase Connection Error:', connectionError);
+        // Se for erro de permissão (403/RLS), o usuário pode não ter permissão de select
+        console.error('Supabase Connection/Policy Error:', connectionError);
         return false;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.warn('Supabase: Nenhum usuário autenticado. Sincronização ignorada.');
-        return false;
-      }
+      // 3. Sincronizar Tabelas (com tratamento de erro individual)
+      
+      // Soldados
+      const { data: sData, error: sErr } = await supabase.from('soldiers').select('data');
+      if (!sErr && sData) {
+        this.setLocal('soldiers', sData.map((row: any) => row.data));
+      } else if (sErr) console.warn('Erro ao sincronizar militares:', sErr);
 
-      // Sync Soldiers
-      const { data: soldiersData } = await supabase.from('soldiers').select('data');
-      if (soldiersData) {
-        const soldiers = soldiersData.map((row: any) => row.data);
-        this.setLocal('soldiers', soldiers);
-      }
+      // Escalas
+      const { data: rData, error: rErr } = await supabase.from('rosters').select('data');
+      if (!rErr && rData) {
+        this.setLocal('rosters', rData.map((row: any) => row.data));
+      } else if (rErr) console.warn('Erro ao sincronizar escalas:', rErr);
 
-      // Sync Rosters
-      const { data: rostersData } = await supabase.from('rosters').select('data');
-      if (rostersData) {
-        const rosters = rostersData.map((row: any) => row.data);
-        this.setLocal('rosters', rosters);
-      }
+      // Configurações
+      const { data: stData, error: stErr } = await supabase.from('app_settings').select('data').limit(1);
+      if (!stErr && stData && stData.length > 0) {
+        this.setLocal('app_settings', stData[0].data);
+      } else if (stErr) console.warn('Erro ao sincronizar configurações:', stErr);
 
-      // Sync Settings
-      const { data: settingsData } = await supabase.from('app_settings').select('data').limit(1);
-      if (settingsData && settingsData.length > 0) {
-        this.setLocal('app_settings', settingsData[0].data);
-      }
+      // Histórico
+      const { data: hData, error: hErr } = await supabase.from('extra_duty_history').select('data');
+      if (!hErr && hData) {
+        this.setLocal('extra_duty_history', hData.map((row: any) => row.data));
+      } else if (hErr) console.warn('Erro ao sincronizar histórico:', hErr);
 
-      // Sync Extra Duty History
-      const { data: historyData } = await supabase.from('extra_duty_history').select('data');
-      if (historyData) {
-        const history = historyData.map((row: any) => row.data);
-        this.setLocal('extra_duty_history', history);
-      }
-
-      console.log('Sincronização concluída com sucesso.');
+      console.log('Sincronização Cloud finalizada.');
       this.notify();
       return true;
 
     } catch (error: any) {
-      console.error('Error syncing with Supabase:', error);
+      console.error('Critical Error during sync:', error);
       return false;
     }
   }
