@@ -260,28 +260,36 @@ class StoreService {
       // 3. Sincronizar Tabelas (com tratamento de erro individual)
       
       // Soldados
-      const { data: sData, error: sErr } = await supabase.from('soldiers').select('data');
-      if (!sErr && sData) {
-        this.setLocal('soldiers', sData.map((row: any) => row.data));
-      } else if (sErr) console.warn('Erro ao sincronizar militares:', sErr);
+      const { data: soldiersData, error: soldiersError } = await supabase.from('soldiers').select('data');
+      if (soldiersError) {
+        console.error('Erro ao sincronizar militares:', soldiersError);
+      } else if (soldiersData) {
+        this.setLocal('soldiers', soldiersData.map((row: any) => row.data));
+      }
 
       // Escalas
-      const { data: rData, error: rErr } = await supabase.from('rosters').select('data');
-      if (!rErr && rData) {
-        this.setLocal('rosters', rData.map((row: any) => row.data));
-      } else if (rErr) console.warn('Erro ao sincronizar escalas:', rErr);
+      const { data: rostersData, error: rostersError } = await supabase.from('rosters').select('data');
+      if (rostersError) {
+        console.error('Erro ao sincronizar escalas:', rostersError);
+      } else if (rostersData) {
+        this.setLocal('rosters', rostersData.map((row: any) => row.data));
+      }
 
       // Configurações
-      const { data: stData, error: stErr } = await supabase.from('app_settings').select('data').limit(1);
-      if (!stErr && stData && stData.length > 0) {
-        this.setLocal('app_settings', stData[0].data);
-      } else if (stErr) console.warn('Erro ao sincronizar configurações:', stErr);
+      const { data: settingsData, error: settingsError } = await supabase.from('app_settings').select('data').limit(1);
+      if (settingsError) {
+        console.error('Erro ao sincronizar configurações:', settingsError);
+      } else if (settingsData && settingsData.length > 0) {
+        this.setLocal('app_settings', settingsData[0].data);
+      }
 
       // Histórico
-      const { data: hData, error: hErr } = await supabase.from('extra_duty_history').select('data');
-      if (!hErr && hData) {
-        this.setLocal('extra_duty_history', hData.map((row: any) => row.data));
-      } else if (hErr) console.warn('Erro ao sincronizar histórico:', hErr);
+      const { data: historyData, error: historyError } = await supabase.from('extra_duty_history').select('data');
+      if (historyError) {
+        console.error('Erro ao sincronizar histórico:', historyError);
+      } else if (historyData) {
+        this.setLocal('extra_duty_history', historyData.map((row: any) => row.data));
+      }
 
       console.log('Sincronização Cloud finalizada.');
       this.notify();
