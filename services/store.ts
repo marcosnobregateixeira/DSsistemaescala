@@ -211,8 +211,14 @@ class StoreService {
   }
 
   private setLocal(key: string, value: any): void {
-    localStorage.setItem(key, JSON.stringify(value));
-    this.notify();
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      this.notify();
+    } catch (e) {
+      console.error('LocalStorage full or restricted:', e);
+      // Fallback: Notify regardless so the app state can still update in memory if it was partially successful
+      this.notify();
+    }
   }
 
   // --- SUPABASE SYNC LOGIC ---
@@ -220,26 +226,17 @@ class StoreService {
   public async initSupabaseSync(force: boolean = false): Promise<boolean> {
     if (!supabase) return false;
 
-    // Se for um sync manual forçado, limpa o bypass de erro de rede
-    if (force) {
-      this.isCloudBypassed = false;
-      sessionStorage.removeItem('supabase_bypassed');
-    }
-
-    if (this.isCloudBypassed) return false;
+    // Retry logic with exponential backoff could be here, but for now we shield with a simple try-catch and status check
+    if (this.isCloudBypassed && !force) return false;
 
     try {
-      console.log('Sincronizando com Supabase...');
+      console.log('Iniciando sincronização blindada com Cloud...');
       
-      // 1. Verificar Sessão
+      // 1. Session check with fallback
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.error('Erro ao obter sessão Supabase:', sessionError);
-        return false;
-      }
       
-      if (!session) {
-        console.warn('Supabase: Nenhum usuário autenticado para sincronização.');
+      if (sessionError || !session) {
+        if (sessionError) console.error('Silent Sync Session Info:', sessionError);
         return false;
       }
 
@@ -731,13 +728,12 @@ class StoreService {
             await pushData('app_settings', 'app_settings');
             await pushData('extra_duty_history', 'extra_duty_history');
             
-            console.log("Backup synced to Supabase successfully.");
+            console.log("Sistema blindado: Sincronização de backup finalizada com sucesso.");
 
         } catch (err) {
-            console.error("Error syncing backup to Supabase:", err);
-            // We don't throw here because local restore succeeded.
-            // But we should warn the user.
-            alert("Backup restaurado localmente, mas houve erro ao sincronizar com a nuvem. Verifique sua conexão.");
+            console.error("Backup Sync Shield Error:", err);
+            // Non-blocking notification or console only
+            this.notify();
         }
     }
   }

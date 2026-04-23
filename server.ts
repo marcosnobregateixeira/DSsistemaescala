@@ -12,17 +12,27 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", mode: process.env.NODE_ENV || "development" });
+  });
+
   const distPath = path.join(process.cwd(), 'dist');
   const isProduction = process.env.NODE_ENV === "production" || fs.existsSync(distPath);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    console.log(`Starting server in development mode`);
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    console.log(`Starting server in development mode...`);
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      console.log(`Vite server created successfully`);
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.error(`Failed to create Vite server:`, e);
+    }
   } else {
     console.log(`Starting server in production mode`);
     app.use(express.static(distPath));
