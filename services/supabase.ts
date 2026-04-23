@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Usando credenciais fixas para forçar a conexão
+// Tenta carregar as variáveis de ambiente, com fallbacks e detecção de nomes truncados
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://vbgotlwjxbbixkrnbjym.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_k0EF6q3L336BIjaO2gRzCw_00fgJcHa';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANO || 'sb_publishable_k0EF6q3L336BIjaO2gRzCw_00fgJcHa';
 
 // Função para validar se a URL é válida e aponta para o domínio do Supabase
 const isValidSupabaseUrl = (url: string) => {
