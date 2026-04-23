@@ -16,9 +16,6 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [user, setUser] = useState<User | null>(db.getCurrentUser());
 
-  // Check if current path is public
-  const isPublicPath = window.location.pathname === '/public-rosters';
-
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -49,19 +46,25 @@ function App() {
                 role = 'OPERADOR';
              }
              
-             // Try to fetch profile for exact role
-             const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
-             if (profile?.role) {
-                role = profile.role.toUpperCase() as UserRole;
-             }
-
              const user: User = {
                 id: session.user.id,
                 username: session.user.email || 'Administrador',
                 role
              };
+             
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
+             
+             // Update role asynchronously if profile exists
+             supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle()
+               .then(({ data: profile }) => {
+                 if (profile?.role) {
+                   const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
+                   sessionStorage.setItem('current_user', JSON.stringify(updatedUser));
+                   setUser(updatedUser);
+                 }
+               })
+               .catch(() => {});
              
              // Forçar sincronização com a nuvem após restaurar sessão
              db.initSupabaseSync();
@@ -81,19 +84,25 @@ function App() {
                 role = 'OPERADOR';
              }
              
-             // Try to fetch profile for exact role
-             const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
-             if (profile?.role) {
-                role = profile.role.toUpperCase() as UserRole;
-             }
-
              const user: User = {
                 id: session.user.id,
                 username: session.user.email || 'Administrador',
                 role
              };
+             
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
+             
+             // Async profile role check
+             supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle()
+               .then(({ data: profile }) => {
+                 if (profile?.role) {
+                    const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
+                    sessionStorage.setItem('current_user', JSON.stringify(updatedUser));
+                    setUser(updatedUser);
+                 }
+               })
+               .catch(() => {});
              
              // Sincronizar ao mudar estado de auth (login/refresh)
              db.initSupabaseSync();

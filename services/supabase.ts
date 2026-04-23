@@ -17,6 +17,14 @@ const isValidSupabaseUrl = (url: string) => {
 
 const isConfigured = !!(supabaseUrl && supabaseAnonKey && isValidSupabaseUrl(supabaseUrl));
 
+if (typeof window !== 'undefined') {
+  console.log('[Supabase] Configured:', isConfigured);
+  if (!isConfigured) {
+    console.log('[Supabase] URL:', supabaseUrl ? 'Set' : 'Missing');
+    console.log('[Supabase] Key:', supabaseAnonKey ? 'Set' : 'Missing');
+  }
+}
+
 export const supabase = (() => {
   if (!isConfigured) {
     if (typeof window !== 'undefined') {

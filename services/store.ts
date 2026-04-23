@@ -206,8 +206,13 @@ class StoreService {
   }
 
   private getLocal<T>(key: string): T | null {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : null;
+    try {
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      console.error(`[Store] Error reading ${key} from LocalStorage:`, e);
+      return null;
+    }
   }
 
   private setLocal(key: string, value: any): void {
@@ -215,8 +220,7 @@ class StoreService {
       localStorage.setItem(key, JSON.stringify(value));
       this.notify();
     } catch (e) {
-      console.error('LocalStorage full or restricted:', e);
-      // Fallback: Notify regardless so the app state can still update in memory if it was partially successful
+      console.error('[Store] LocalStorage error:', e);
       this.notify();
     }
   }
@@ -504,29 +508,39 @@ class StoreService {
         let role: UserRole = 'VISUALIZADOR';
         const userEmail = data.user.email?.toLowerCase() || '';
         
-        if (userEmail === 'marcos_notigan@hotmail.com') {
+        if (userEmail === 'marcos_notigan@hotmail.com' || userEmail === 'admin@pmce.gov.br') {
            role = 'ADMIN';
         } else if (userEmail.includes('operador')) {
            role = 'OPERADOR';
         }
         
-        // Try to fetch profile for exact role
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
-        if (profile?.role) {
-           role = profile.role.toUpperCase() as UserRole;
-        }
-
+        // Final user object
         const user: User = {
           id: data.user.id,
-          username: data.user.email || 'Administrador',
+          username: data.user.email || 'Usuário',
           role
         };
+        
+        // Save to session immediately
         sessionStorage.setItem('current_user', JSON.stringify(user));
         
-        // Sincronizar após login bem-sucedido
-        await this.initSupabaseSync();
-        
+        // Update local status
         this.notify();
+
+        // Start sync in background (non-blocking) - this prevents the "floating" login button
+        this.initSupabaseSync().catch(err => console.error("Background sync error:", err));
+        
+        // Get profile in background too
+        supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle()
+          .then(({ data: profile }) => {
+            if (profile?.role) {
+              const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
+              sessionStorage.setItem('current_user', JSON.stringify(updatedUser));
+              this.notify();
+            }
+          })
+          .catch(() => {});
+
         return { user, error: null };
       }
       
@@ -556,8 +570,13 @@ class StoreService {
   }
 
   getCurrentUser(): User | null {
-    const data = sessionStorage.getItem('current_user');
-    return data ? JSON.parse(data) : null;
+    try {
+      const data = sessionStorage.getItem('current_user');
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      console.error("[Store] Error reading session user:", e);
+      return null;
+    }
   }
   
   // --- MÉTODOS DEPRECATED/REMOVIDOS (Mantidos como stub para evitar quebra de build imediata, mas seguros) ---

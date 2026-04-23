@@ -2,9 +2,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../services/store';
-import { Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar } from 'lucide-react';
+import { Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar, Scale, Activity, Heart, Stethoscope, Landmark, Settings as SettingsIcon } from 'lucide-react';
 import { Rank, Status, Soldier, BankTransaction, Roster, Cadre, ExtraDutyHistory } from '../types';
-import * as Icons from 'lucide-react';
+
+const ICON_MAP: Record<string, any> = {
+  Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, 
+  MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, 
+  Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, 
+  CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar, Scale,
+  Activity, Heart, Stethoscope, Landmark, Settings: SettingsIcon
+};
 import { PrintPreview } from '../components/pdf/PrintPreview';
 
 // Helper para ordenação de patentes
@@ -462,7 +469,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const DynamicIcon = ({ name, size = 20, className = "" }: { name: string, size?: number, className?: string }) => {
-    const IconComponent = (Icons as any)[name] || FileText;
+    const IconComponent = ICON_MAP[name] || FileText;
     return <IconComponent size={size} className={className} />;
   };
 
