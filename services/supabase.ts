@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Tenta carregar as variáveis de ambiente de diferentes formas
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || (window as any).VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || (window as any).VITE_SUPABASE_ANON_KEY;
+// Usando credenciais fixas para forçar a conexão
+const supabaseUrl = 'https://vbgotlwjxbbixkrnbjym.supabase.co';
+const supabaseAnonKey = 'sb_publishable_k0EF6q3L336BIjaO2gRzCw_00fgJcHa';
 
 // Função para validar se a URL é válida e aponta para o domínio do Supabase
 const isValidSupabaseUrl = (url: string) => {
@@ -17,15 +17,10 @@ const isValidSupabaseUrl = (url: string) => {
 
 const isConfigured = supabaseUrl && 
                    supabaseAnonKey && 
-                   supabaseUrl !== 'YOUR_SUPABASE_URL' && 
-                   supabaseAnonKey !== 'YOUR_SUPABASE_ANON_KEY' &&
                    isValidSupabaseUrl(supabaseUrl);
 
 if (!isConfigured) {
-  if (supabaseUrl && supabaseUrl !== 'YOUR_SUPABASE_URL') {
-    console.error('Supabase: A URL fornecida parece inválida. Certifique-se de que começa com https:// e é o domínio correto do seu projeto.');
-  }
-  console.warn('Supabase: Variáveis de ambiente não configuradas ou inválidas. O modo offline (LocalStorage) será utilizado.');
+  console.warn('Supabase: Configuração inválida.');
 }
 
 export const supabase = isConfigured
