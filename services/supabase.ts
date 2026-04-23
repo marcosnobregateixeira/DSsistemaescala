@@ -3,6 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+console.log('DEBUG: VITE_SUPABASE_URL:', supabaseUrl);
+console.log('DEBUG: VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '***SET***' : '***NOT SET***');
+console.log('DEBUG: import.meta.env keys:', Object.keys(import.meta.env));
+
 // Função para validar se a URL é válida e aponta para o domínio do Supabase
 const isValidSupabaseUrl = (url: string) => {
   try {
