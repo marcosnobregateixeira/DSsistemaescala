@@ -1,96 +1,212 @@
-import html2pdf from 'html2pdf.js';
-import React, { useState, useMemo, useEffect } from 'react';
-import { Roster, Rank } from '../../types';
-import { db } from '../../services/store';
-import { getHolidayName, getRankWeight, getAbbreviatedRank } from '../../utils';
-import { Printer, Download, Loader2, FileText, ZoomIn, ZoomOut, Monitor, RotateCw } from 'lucide-react';
+import html2pdf from "html2pdf.js";
+import React, { useState, useMemo, useEffect } from "react";
+import { Roster, Rank } from "../../types";
+import { db } from "../../services/store";
+import { getHolidayName, getRankWeight, getAbbreviatedRank } from "../../utils";
+import {
+  Printer,
+  Download,
+  Loader2,
+  FileText,
+  ZoomIn,
+  ZoomOut,
+  Monitor,
+  RotateCw,
+} from "lucide-react";
 
 interface PrintPreviewProps {
   roster: Roster;
   onClose: () => void;
+  bspFontSize?: number;
+  bspRotation?: boolean;
+  bspRowHeight?: number;
+  saturdayColor?: string;
+  sundayColor?: string;
 }
 
-export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) => {
+export const PrintPreview: React.FC<PrintPreviewProps> = ({
+  roster,
+  onClose,
+  bspFontSize = 4,
+  bspRotation = false,
+  bspRowHeight = 24,
+  saturdayColor = "#e5e7eb",
+  sundayColor = "#e5e7eb",
+}) => {
   const settings = db.getSettings() as any;
   const allSoldiers = db.getSoldiers();
   const [isGenerating, setIsGenerating] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(0.8); // Zoom inicial
-  
+
   const isLongScale = useMemo(() => {
-    const start = new Date(roster.startDate + 'T12:00:00');
-    const end = new Date(roster.endDate + 'T12:00:00');
-    const diff = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const start = new Date(roster.startDate + "T12:00:00");
+    const end = new Date(roster.endDate + "T12:00:00");
+    const diff =
+      Math.ceil(
+        Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+      ) + 1;
     return diff > 10;
   }, [roster.startDate, roster.endDate]);
 
-  const isExtra = roster.type === 'cat_extra';
-  const isOdo = roster.type === 'cat_odo';
-  const hideFirstCol = isOdo || roster.type === 'cat_amb' || roster.type === 'cat_psi' || roster.type === 'cat_ast' || roster.title?.toUpperCase().includes('OFICIAL DE DIA');
-  
-  const isPsiOrAst = roster.type === 'cat_psi' || roster.type === 'cat_ast' || isOdo || (roster.type === 'cat_adm' && isLongScale);
-  
+  const isExtra = roster.type === "cat_extra";
+  const isOdo = roster.type === "cat_odo";
+
+  const isCoordRow = (rowObj: any) => {
+    if (!rowObj || !rowObj.label) return false;
+    const lbl = rowObj.label.toUpperCase();
+    return (
+      lbl.includes("COORDENAÇÃO") ||
+      lbl.includes("COORDENACAO") ||
+      lbl.includes("CHEFIA")
+    );
+  };
+
+  const isPresidioMilitarRoster = (rost: any) => {
+    if (!rost) return false;
+    const titleUpper = (rost.title || "").toUpperCase();
+    const categoryNameUpper =
+      settings?.rosterCategories
+        ?.find((c: any) => c.id === rost.type)
+        ?.name?.toUpperCase() || "";
+    const hasCoordRow = (rost.sections || []).some((sec: any) =>
+      (sec.rows || []).some((row: any) => isCoordRow(row))
+    );
+    return (
+      titleUpper.includes("PRESIDIO") ||
+      titleUpper.includes("PRESÍDIO") ||
+      categoryNameUpper.includes("PRESIDIO") ||
+      categoryNameUpper.includes("PRESÍDIO") ||
+      hasCoordRow
+    );
+  };
+
+  const getCoordSoldiersForLabel = (rowId: string) => {
+    if (!roster) return [];
+    const rowShifts = roster.shifts?.filter((s) => s.period === rowId) || [];
+    const uniqueSoldierIds = Array.from(
+      new Set(rowShifts.map((s) => s.soldierId)),
+    );
+    return allSoldiers.filter((s) => uniqueSoldierIds.includes(s.id));
+  };
+  const hideFirstCol =
+    isOdo ||
+    roster.type === "cat_amb" ||
+    roster.type === "cat_psi" ||
+    roster.type === "cat_ast" ||
+    roster.title?.toUpperCase().includes("OFICIAL DE DIA");
+
+  const isPsiOrAst =
+    roster.type === "cat_psi" ||
+    roster.type === "cat_ast" ||
+    isOdo ||
+    (roster.type === "cat_adm" && isLongScale);
+
+  const isBSP =
+    roster.title?.toUpperCase().includes("BIOPSICOSSOCIAL") ||
+    roster.title?.toUpperCase().includes("BSP");
+
+  const isPresidio = isPresidioMilitarRoster(roster);
+  const isBSPOrPresidio = isBSP || isPresidio;
+
+  const attendancePeriod = isPresidio
+    ? "PRESIDIO_ATTENDANCE"
+    : "BSP_ATTENDANCE";
+
   // Categorias específicas que usam layout vertical (Operational) - Agora inclui novas escalas personalizadas
-  const isAmbOrPsi = roster.type === 'cat_amb' || isPsiOrAst || !['cat_extra', 'cat_adm'].includes(roster.type);
-  
+  const isAmbOrPsi =
+    roster.type === "cat_amb" ||
+    isPsiOrAst ||
+    !["cat_extra", "cat_adm"].includes(roster.type);
+
   // Todo o resto (Adm) usa layout Grade Paisagem
-  const isGrid = !isExtra && !isAmbOrPsi;
-  
+  const isGrid = !isExtra && !isAmbOrPsi && !isBSPOrPresidio;
+
   // PADRÃO: PAISAGEM (LANDSCAPE) PARA TODAS AS ESCALAS
 
-  const cleanHeaderTitle = (roster.headerTitle || settings.orgName || settings.institutionName || '').replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, '');
+  const cleanHeaderTitle = (
+    roster.headerTitle ||
+    settings.orgName ||
+    settings.institutionName ||
+    ""
+  ).replace(/\s*\(TESTE CONEXÃO[^)]+\)/g, "");
 
-  const appearance = settings.appearance || { fontFamily: 'Arial, Helvetica, sans-serif', fontSize: 'medium', textCase: 'uppercase' };
+  const appearance = settings.appearance || {
+    fontFamily: "Arial, Helvetica, sans-serif",
+    fontSize: "medium",
+    textCase: "uppercase",
+  };
 
-  const getPrintFontSize = (type: 'name' | 'phone' | 'header' | 'title' | 'subtitle' | 'cell' | 'meta' | 'tiny', size: string) => {
-      const isOdo = roster.type === 'cat_odo';
-      const isPsiAst = roster.type === 'cat_psi' || roster.type === 'cat_ast' || roster.type === 'cat_odo' || (roster.type === 'cat_adm' && isLongScale);
-      
-      const sizes = {
-          small: { 
-            name: isOdo ? '5.5pt' : (isPsiAst ? '5.5pt' : '6.5pt'), 
-            phone: isOdo ? '5pt' : (isPsiAst ? '5pt' : '6pt'), 
-            header: isOdo ? '5.5pt' : (isPsiAst ? '6pt' : '6pt'), 
-            title: isOdo ? '8pt' : (isPsiAst ? '9pt' : '9pt'), 
-            subtitle: isOdo ? '6.5pt' : (isPsiAst ? '8pt' : '7pt'), 
-            cell: isOdo ? '5.5pt' : (isPsiAst ? '5.5pt' : '6.5pt'), 
-            meta: isOdo ? '5.5pt' : (isPsiAst ? '6pt' : '6pt'), 
-            tiny: isOdo ? '4.5pt' : (isPsiAst ? '4.5pt' : '5pt') 
-          },
-          medium: { 
-            name: isOdo ? '6.5pt' : (isPsiAst ? '6.5pt' : '7.5pt'), 
-            phone: isOdo ? '6pt' : (isPsiAst ? '6pt' : '7pt'), 
-            header: isOdo ? '6.5pt' : (isPsiAst ? '7pt' : '7pt'), 
-            title: isOdo ? '9.5pt' : (isPsiAst ? '10.5pt' : '10.5pt'), 
-            subtitle: isOdo ? '7.5pt' : (isPsiAst ? '9pt' : '8pt'), 
-            cell: isOdo ? '6.5pt' : (isPsiAst ? '6.5pt' : '7.5pt'), 
-            meta: isOdo ? '6.5pt' : (isPsiAst ? '7pt' : '7pt'), 
-            tiny: isOdo ? '5pt' : (isPsiAst ? '5.5pt' : '5.5pt') 
-          },
-          large: { 
-            name: isOdo ? '7.5pt' : (isPsiAst ? '7.5pt' : '8.5pt'), 
-            phone: isOdo ? '7pt' : (isPsiAst ? '7pt' : '8pt'), 
-            header: isOdo ? '7.5pt' : (isPsiAst ? '8pt' : '8pt'), 
-            title: isOdo ? '11pt' : (isPsiAst ? '12pt' : '12pt'), 
-            subtitle: isOdo ? '8.5pt' : (isPsiAst ? '10pt' : '9pt'), 
-            cell: isOdo ? '7.5pt' : (isPsiAst ? '7.5pt' : '8.5pt'), 
-            meta: isOdo ? '7.5pt' : (isPsiAst ? '8pt' : '8pt'), 
-            tiny: isOdo ? '5.5pt' : (isPsiAst ? '6pt' : '6pt') 
-          }
-      };
-      // @ts-ignore
-      return sizes[size]?.[type] || sizes.medium[type];
+  const getPrintFontSize = (
+    type:
+      | "name"
+      | "phone"
+      | "header"
+      | "title"
+      | "subtitle"
+      | "cell"
+      | "meta"
+      | "tiny",
+    size: string,
+  ) => {
+    const isOdo = roster.type === "cat_odo";
+    const isPsiAst =
+      roster.type === "cat_psi" ||
+      roster.type === "cat_ast" ||
+      roster.type === "cat_odo" ||
+      (roster.type === "cat_adm" && isLongScale);
+
+    const sizes = {
+      small: {
+        name: isOdo ? "5.5pt" : isPsiAst ? "5.5pt" : "6.5pt",
+        phone: isOdo ? "5pt" : isPsiAst ? "5pt" : "6pt",
+        header: isOdo ? "5.5pt" : isPsiAst ? "6pt" : "6pt",
+        title: isOdo ? "8pt" : isPsiAst ? "9pt" : "9pt",
+        subtitle: isOdo ? "6.5pt" : isPsiAst ? "8pt" : "7pt",
+        cell: isOdo ? "5.5pt" : isPsiAst ? "5.5pt" : "6.5pt",
+        meta: isOdo ? "5.5pt" : isPsiAst ? "6pt" : "6pt",
+        tiny: isOdo ? "4.5pt" : isPsiAst ? "4.5pt" : "5pt",
+      },
+      medium: {
+        name: isOdo ? "6.5pt" : isPsiAst ? "6.5pt" : "7.5pt",
+        phone: isOdo ? "6pt" : isPsiAst ? "6pt" : "7pt",
+        header: isOdo ? "6.5pt" : isPsiAst ? "7pt" : "7pt",
+        title: isOdo ? "9.5pt" : isPsiAst ? "10.5pt" : "10.5pt",
+        subtitle: isOdo ? "7.5pt" : isPsiAst ? "9pt" : "8pt",
+        cell: isOdo ? "6.5pt" : isPsiAst ? "6.5pt" : "7.5pt",
+        meta: isOdo ? "6.5pt" : isPsiAst ? "7pt" : "7pt",
+        tiny: isOdo ? "5pt" : isPsiAst ? "5.5pt" : "5.5pt",
+      },
+      large: {
+        name: isOdo ? "7.5pt" : isPsiAst ? "7.5pt" : "8.5pt",
+        phone: isOdo ? "7pt" : isPsiAst ? "7pt" : "8pt",
+        header: isOdo ? "7.5pt" : isPsiAst ? "8pt" : "8pt",
+        title: isOdo ? "11pt" : isPsiAst ? "12pt" : "12pt",
+        subtitle: isOdo ? "8.5pt" : isPsiAst ? "10pt" : "9pt",
+        cell: isOdo ? "7.5pt" : isPsiAst ? "7.5pt" : "8.5pt",
+        meta: isOdo ? "7.5pt" : isPsiAst ? "8pt" : "8pt",
+        tiny: isOdo ? "5.5pt" : isPsiAst ? "6pt" : "6pt",
+      },
+    };
+    // @ts-ignore
+    return sizes[size]?.[type] || sizes.medium[type];
   };
 
   const getPrintTextTransform = (c: string) => {
-      switch(c) {
-          case 'lowercase': return 'lowercase';
-          case 'capitalize': return 'capitalize';
-          case 'normal': return 'none';
-          default: return 'uppercase';
-      }
+    switch (c) {
+      case "lowercase":
+        return "lowercase";
+      case "capitalize":
+        return "capitalize";
+      case "normal":
+        return "none";
+      default:
+        return "uppercase";
+    }
   };
 
-  const textTransformStyle = { textTransform: getPrintTextTransform(appearance.textCase) as any };
+  const textTransformStyle = {
+    textTransform: getPrintTextTransform(appearance.textCase) as any,
+  };
 
   // Estilos de "blindagem" para garantir que o layout não quebre
   const blindStyles = `
@@ -124,120 +240,158 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
 
   const handleFitToScreen = () => {
     const screenHeight = window.innerHeight;
-    const element = document.getElementById('roster-pdf-content');
-    
+    const element = document.getElementById("roster-pdf-content");
+
     // Altura base A4 Landscape (794px a 96dpi)
-    let contentHeight = 794; 
-    
+    let contentHeight = 794;
+
     if (isPsiOrAst && element) {
-      const wrapper = element.querySelector('.flex-col.h-auto') as HTMLElement;
+      const wrapper = element.querySelector(".flex-col.h-auto") as HTMLElement;
       if (wrapper) {
         // Se o conteúdo for maior que o A4, ajustamos o zoom para caber tudo
         contentHeight = Math.max(794, wrapper.scrollHeight);
       }
     }
-    
-    const fitZoom = (screenHeight - 140) / contentHeight; 
+
+    const fitZoom = (screenHeight - 140) / contentHeight;
     setZoomLevel(Math.max(0.3, Math.min(fitZoom, 1.2)));
   };
 
   // Processamento de dados para Escala Extra (Lista Plana, sem agrupar por Quadro)
   const extraRosterData = useMemo(() => {
     if (!isExtra) return [];
-    
-    const validShifts = roster.shifts.filter(s => s.soldierId);
-    const list = validShifts.map(shift => {
-      const soldier = allSoldiers.find(s => s.id === shift.soldierId);
-      return { shift, soldier };
-    }).filter(item => item.soldier) as { shift: any, soldier: typeof allSoldiers[0] }[];
+
+    const validShifts = roster.shifts.filter((s) => s.soldierId);
+    const list = validShifts
+      .map((shift) => {
+        const soldier = allSoldiers.find((s) => s.id === shift.soldierId);
+        return { shift, soldier };
+      })
+      .filter((item) => item.soldier) as {
+      shift: any;
+      soldier: (typeof allSoldiers)[0];
+    }[];
 
     list.sort((a, b) => {
       const weightA = getRankWeight(a.soldier.rank);
       const weightB = getRankWeight(b.soldier.rank);
       if (weightA !== weightB) return weightA - weightB;
-      return (a.soldier.name || '').localeCompare(b.soldier.name || '');
+      return (a.soldier.name || "").localeCompare(b.soldier.name || "");
     });
 
     return list;
   }, [roster, allSoldiers, isExtra]);
 
-  const handleDownloadPDF = async () => {
-    const element = document.getElementById('roster-pdf-content');
-    if (!element) return;
-    setIsGenerating(true);
-    
-    const originalStyle = element.getAttribute('style');
-    const originalWidth = element.style.width;
-    const originalMinHeight = element.style.minHeight;
-    
-    element.style.transform = 'none';
-    element.style.margin = '0';
-    element.style.padding = '0';
-    element.style.width = '296mm';
-    element.style.boxSizing = 'border-box';
-    
-    // Ajustar escala para caber em uma única página se necessário
-    let wrapperOriginalStyle = '';
-    element.style.height = 'auto';
-    element.style.minHeight = 'auto';
-    
-    // Forçar h-auto nos wrappers internos para medir o tamanho real do conteúdo
-    const wrappers = element.querySelectorAll('.flex-col');
-    wrappers.forEach(w => {
-      (w as HTMLElement).style.height = 'auto';
-      (w as HTMLElement).style.maxHeight = 'none';
+  const bspSoldiers = useMemo(() => {
+    if (!isBSPOrPresidio) return [];
+    const uniqueIds = Array.from(
+      new Set(
+        roster.shifts
+          .filter((s) => s.period === attendancePeriod)
+          .map((s) => s.soldierId)
+          .filter(Boolean),
+      ),
+    );
+    const selected = allSoldiers.filter((s) => uniqueIds.includes(s.id));
+
+    // Sort by rank weight then name
+    selected.sort((a, b) => {
+      const wa = getRankWeight(a.rank);
+      const wb = getRankWeight(b.rank);
+      if (wa !== wb) return wa - wb;
+      return a.name.localeCompare(b.name);
     });
 
-    const mainWrapper = element.querySelector('.flex-col') as HTMLElement;
+    return selected;
+  }, [roster.shifts, allSoldiers, isBSP]);
+
+  const handleDownloadPDF = async () => {
+    const element = document.getElementById("roster-pdf-content");
+    if (!element) return;
+    setIsGenerating(true);
+
+    const originalStyle = element.getAttribute("style");
+    const originalWidth = element.style.width;
+    const originalMinHeight = element.style.minHeight;
+
+    element.style.transform = "none";
+    element.style.margin = "0";
+    element.style.padding = "0";
+    element.style.width = "296mm";
+    element.style.boxSizing = "border-box";
+
+    // Ajustar escala para caber em uma única página se necessário
+    let wrapperOriginalStyle = "";
+    element.style.height = "auto";
+    element.style.minHeight = "auto";
+
+    // Forçar h-auto nos wrappers internos para medir o tamanho real do conteúdo
+    const wrappers = element.querySelectorAll(".flex-col");
+    wrappers.forEach((w) => {
+      (w as HTMLElement).style.height = "auto";
+      (w as HTMLElement).style.maxHeight = "none";
+    });
+
+    const mainWrapper = element.querySelector(".flex-col") as HTMLElement;
     if (mainWrapper) {
-      wrapperOriginalStyle = mainWrapper.getAttribute('style') || '';
+      wrapperOriginalStyle = mainWrapper.getAttribute("style") || "";
       const contentHeight = mainWrapper.scrollHeight;
       const targetHeight = 210 * 3.78; // Aprox. pixels para 210mm (96dpi)
-      
+
       if (contentHeight > targetHeight) {
         // Reduzimos um pouco mais a escala para garantir margens de segurança (4px)
-        const scale = (targetHeight - 6) / contentHeight; 
+        const scale = (targetHeight - 6) / contentHeight;
         mainWrapper.style.transform = `scale(${scale})`;
-        mainWrapper.style.transformOrigin = 'top left';
+        mainWrapper.style.transformOrigin = "top left";
         mainWrapper.style.width = `${100 / scale}%`;
       }
     }
-    
-    element.style.height = '210mm';
-    element.style.overflow = 'hidden';
+
+    element.style.height = "210mm";
+    element.style.overflow = "hidden";
 
     const opt = {
-      margin: 0, 
-      filename: `Escala_${roster.title.replace(/\s+/g, '_')}.pdf`,
-      image: { type: 'jpeg' as const, quality: 1 },
-      html2canvas: { scale: 2, useCORS: true, scrollY: 0, letterRendering: true },
-      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const },
-      pagebreak: { mode: 'avoid-all' }
+      margin: 0,
+      filename: `Escala_${roster.title.replace(/\s+/g, "_")}.pdf`,
+      image: { type: "jpeg" as const, quality: 1 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        scrollY: 0,
+        letterRendering: true,
+      },
+      jsPDF: {
+        unit: "mm" as const,
+        format: "a4" as const,
+        orientation: "landscape" as const,
+      },
+      pagebreak: { mode: "avoid-all" },
     };
 
     try {
       await html2pdf().set(opt).from(element).save();
-    } catch (e) { 
-      alert("Erro ao gerar PDF."); 
+    } catch (e) {
+      alert("Erro ao gerar PDF.");
       console.error(e);
-    }
-    finally { 
-      setIsGenerating(false); 
+    } finally {
+      setIsGenerating(false);
       if (originalStyle) {
-        element.setAttribute('style', originalStyle);
+        element.setAttribute("style", originalStyle);
       } else {
         element.style.width = originalWidth;
         element.style.minHeight = originalMinHeight;
-        element.style.height = '';
-        element.style.transform = '';
-        element.style.overflow = '';
+        element.style.height = "";
+        element.style.transform = "";
+        element.style.overflow = "";
       }
-      
+
       if (wrapperOriginalStyle) {
-        const wrapper = element.querySelector('.flex-col.h-auto') as HTMLElement;
-        if (wrapper) wrapper.setAttribute('style', wrapperOriginalStyle);
+        const wrapper = element.querySelector(
+          ".flex-col.h-auto",
+        ) as HTMLElement;
+        if (wrapper) wrapper.setAttribute("style", wrapperOriginalStyle);
       }
-      
+
       handleFitToScreen();
     }
   };
@@ -245,51 +399,80 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   // GERAÇÃO DAS DATAS
   const dates = useMemo(() => {
     const d = [];
-    let curr = new Date(roster.startDate + 'T12:00:00');
-    const end = new Date(roster.endDate + 'T12:00:00');
-    while(curr <= end) { 
+    let curr = new Date(roster.startDate + "T12:00:00");
+    const end = new Date(roster.endDate + "T12:00:00");
+    while (curr <= end) {
       const day = curr.getDay();
       const isWeekend = day === 0 || day === 6;
       if (!roster.hideWeekends || !isWeekend) {
-        d.push(new Date(curr)); 
+        d.push(new Date(curr));
       }
-      curr.setDate(curr.getDate() + 1); 
+      curr.setDate(curr.getDate() + 1);
     }
     return d;
   }, [roster.startDate, roster.endDate, roster.hideWeekends]);
 
-  const creationDateFormatted = roster.creationDate 
-    ? new Date(roster.creationDate + 'T12:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
-    : new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const creationDateFormatted = roster.creationDate
+    ? new Date(roster.creationDate + "T12:00:00").toLocaleDateString("pt-BR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : new Date().toLocaleDateString("pt-BR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
 
   // Headers dinâmicos para Extra
-  const HEADERS = roster.customHeaders || ['ORDEM', 'POST/GRADUAÇÃO', 'NUMERO', 'NOME COMPLETO', 'MATRICULA', 'PIS', 'CELULAR'];
+  const HEADERS = roster.customHeaders || [
+    "ORDEM",
+    "POST/GRADUAÇÃO",
+    "NUMERO",
+    "NOME COMPLETO",
+    "MATRICULA",
+    "PIS",
+    "CELULAR",
+  ];
 
   // Helper de Renderização de Célula Extra (Similar ao Editor)
   const renderExtraCell = (headerName: string, item: any, colIndex: number) => {
     const h = headerName.toUpperCase();
     const s = item.soldier;
-    const textStyle = { textTransform: getPrintTextTransform(appearance.textCase) as any };
+    const textStyle = {
+      textTransform: getPrintTextTransform(appearance.textCase) as any,
+    };
 
-    if (h.includes('GRAD') || h.includes('POSTO')) return <span style={textStyle}>{getAbbreviatedRank(s.rank)}</span>;
-    if (h.includes('COMPLETO')) {
+    if (h.includes("GRAD") || h.includes("POSTO"))
+      return <span style={textStyle}>{getAbbreviatedRank(s.rank)}</span>;
+    if (h.includes("COMPLETO")) {
       const fullName = s.fullName || s.name;
       let displayName: React.ReactNode = fullName;
-      
+
       if (s.fullName && s.name) {
         try {
           // Split short name into words and escape each part
           const nameParts = s.name.trim().split(/\s+/).filter(Boolean);
           // Sort by length descending to match longer words first
           nameParts.sort((a, b) => b.length - a.length);
-          
-          const escapedParts = nameParts.map((part: string) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-          const regex = new RegExp(`(${escapedParts.join('|')})`, 'gi');
-          
+
+          const escapedParts = nameParts.map((part: string) =>
+            part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          );
+          const regex = new RegExp(`(${escapedParts.join("|")})`, "gi");
+
           const parts = s.fullName.split(regex);
           displayName = parts.map((part: string, i: number) => {
-            const isMatch = nameParts.some(np => np.toLowerCase() === part.toLowerCase());
-            return isMatch ? <strong key={i} className="font-black">{part}</strong> : part;
+            const isMatch = nameParts.some(
+              (np) => np.toLowerCase() === part.toLowerCase(),
+            );
+            return isMatch ? (
+              <strong key={i} className="font-black">
+                {part}
+              </strong>
+            ) : (
+              part
+            );
           });
         } catch (e) {
           // Fallback if regex fails
@@ -299,22 +482,50 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
         displayName = <strong className="font-black">{s.name}</strong>;
       }
 
-      return <span className="text-center block" style={textStyle}>{displayName} {s.roleShort}</span>;
+      return (
+        <span className="text-center block" style={textStyle}>
+          {displayName} {s.roleShort}
+        </span>
+      );
     }
-    if (h.includes('NOME')) return <div className="text-center truncate font-black" style={textStyle}>{s.name} {s.roleShort}</div>;
-    if (h === 'NUMERO' || h.includes('NUMERO') || h.includes('NUMERAL')) return s.matricula || '-';
-    if (h.includes('MATRICULA') || h.includes('MATRÍCULA') || h === 'MF' || h === 'M.F' || h.includes('FUNCIONAL')) return s.mf || '-';
-    if (h === 'PIS' || h.includes('PIS')) return s.pis || '-';
-    if (h === 'MAT' || h.includes('MAT.') || h === 'NUM' || h.includes('NUM.')) return s.matricula || '-';
-    if (h.includes('CEL') || h.includes('TEL')) return s.phone || '-';
-    if (h.includes('FUN') || h.includes('CARGO')) return <span style={textStyle}>{s.role}</span>;
-    if (h.includes('SETOR') || h.includes('UNIDADE') || h.includes('LOTA')) return <span style={textStyle}>{s.sector}</span>;
-    if (h.includes('SIT') || h.includes('STATUS')) return <span className="font-bold" style={textStyle}>{s.status}</span>;
-    if (h === 'NR' || h === 'NR.' || h === 'OBS') {
-        const val = item.shift.customData?.[colIndex.toString()] !== undefined ? item.shift.customData[colIndex.toString()] : (item.shift.note || '-');
-        return <span style={textStyle}>{val}</span>;
+    if (h.includes("NOME"))
+      return (
+        <div className="text-center truncate font-black" style={textStyle}>
+          {s.name} {s.roleShort}
+        </div>
+      );
+    if (h === "NUMERO" || h.includes("NUMERO") || h.includes("NUMERAL"))
+      return s.matricula || "-";
+    if (
+      h.includes("MATRICULA") ||
+      h.includes("MATRÍCULA") ||
+      h === "MF" ||
+      h === "M.F" ||
+      h.includes("FUNCIONAL")
+    )
+      return s.mf || "-";
+    if (h === "PIS" || h.includes("PIS")) return s.pis || "-";
+    if (h === "MAT" || h.includes("MAT.") || h === "NUM" || h.includes("NUM."))
+      return s.matricula || "-";
+    if (h.includes("CEL") || h.includes("TEL")) return s.phone || "-";
+    if (h.includes("FUN") || h.includes("CARGO"))
+      return <span style={textStyle}>{s.role}</span>;
+    if (h.includes("SETOR") || h.includes("UNIDADE") || h.includes("LOTA"))
+      return <span style={textStyle}>{s.sector}</span>;
+    if (h.includes("SIT") || h.includes("STATUS"))
+      return (
+        <span className="font-bold" style={textStyle}>
+          {s.status}
+        </span>
+      );
+    if (h === "NR" || h === "NR." || h === "OBS") {
+      const val =
+        item.shift.customData?.[colIndex.toString()] !== undefined
+          ? item.shift.customData[colIndex.toString()]
+          : item.shift.note || "-";
+      return <span style={textStyle}>{val}</span>;
     }
-    const customVal = item.shift.customData?.[colIndex.toString()] || '-';
+    const customVal = item.shift.customData?.[colIndex.toString()] || "-";
     return <span style={textStyle}>{customVal}</span>;
   };
 
@@ -378,445 +589,1679 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
       {/* Barra de Ferramentas */}
       <div className="bg-gray-800 p-3 text-white flex justify-between items-center sticky top-0 z-50 border-b border-gray-700 shadow-xl no-print-internal">
         <div className="flex items-center space-x-4">
-           <h2 className="font-bold flex items-center space-x-2 text-base"><FileText size={20}/> <span className="hidden md:inline">Visualização de Impressão (A4 Paisagem)</span></h2>
+          <h2 className="font-bold flex items-center space-x-2 text-base">
+            <FileText size={20} />{" "}
+            <span className="hidden md:inline">
+              Visualização de Impressão (A4 Paisagem)
+            </span>
+          </h2>
         </div>
 
         <div className="flex items-center space-x-2">
           <div className="hidden md:flex items-center bg-gray-700 rounded-lg p-1 mr-2">
-            <button onClick={() => setZoomLevel(z => Math.max(0.3, z - 0.1))} className="p-1.5 hover:text-blue-300 hover:bg-gray-600 rounded transition"><ZoomOut size={16}/></button>
-            <span className="text-xs font-mono w-10 text-center">{Math.round(zoomLevel * 100)}%</span>
-            <button onClick={() => setZoomLevel(z => Math.min(2, z + 0.1))} className="p-1.5 hover:text-blue-300 hover:bg-gray-600 rounded transition"><ZoomIn size={16}/></button>
+            <button
+              onClick={() => setZoomLevel((z) => Math.max(0.3, z - 0.1))}
+              className="p-1.5 hover:text-blue-300 hover:bg-gray-600 rounded transition"
+            >
+              <ZoomOut size={16} />
+            </button>
+            <span className="text-xs font-mono w-10 text-center">
+              {Math.round(zoomLevel * 100)}%
+            </span>
+            <button
+              onClick={() => setZoomLevel((z) => Math.min(2, z + 0.1))}
+              className="p-1.5 hover:text-blue-300 hover:bg-gray-600 rounded transition"
+            >
+              <ZoomIn size={16} />
+            </button>
             <div className="w-px h-4 bg-gray-600 mx-1"></div>
-            <button onClick={handleFitToScreen} className="p-1.5 hover:text-green-300 hover:bg-gray-600 rounded transition" title="Ajustar à Tela"><Monitor size={16}/></button>
+            <button
+              onClick={handleFitToScreen}
+              className="p-1.5 hover:text-green-300 hover:bg-gray-600 rounded transition"
+              title="Ajustar à Tela"
+            >
+              <Monitor size={16} />
+            </button>
           </div>
-          <button onClick={onClose} className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-xs font-bold uppercase transition">Voltar</button>
-          <button onClick={handleDownloadPDF} disabled={isGenerating} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded font-bold flex items-center text-xs shadow-md transition uppercase">
-            {isGenerating ? <Loader2 className="animate-spin mr-1" size={14}/> : <Download className="mr-1" size={14}/>} <span className="hidden sm:inline">PDF</span>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-xs font-bold uppercase transition"
+          >
+            Voltar
+          </button>
+          <button
+            onClick={handleDownloadPDF}
+            disabled={isGenerating}
+            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded font-bold flex items-center text-xs shadow-md transition uppercase"
+          >
+            {isGenerating ? (
+              <Loader2 className="animate-spin mr-1" size={14} />
+            ) : (
+              <Download className="mr-1" size={14} />
+            )}{" "}
+            <span className="hidden sm:inline">PDF</span>
           </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-auto bg-gray-600/50 p-4 md:p-8 flex justify-center items-start">
-        <div 
-          style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top center' }}
+        <div
+          style={{
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: "top center",
+          }}
           className="transition-transform duration-200 ease-out origin-top will-change-transform bg-white shadow-2xl"
         >
-          {isExtra ? (
-            <div id="roster-pdf-content" className={containerClass} style={{ padding: '3mm', fontFamily: appearance.fontFamily, backgroundColor: 'white', display: 'flex', flexDirection: 'column', height: '210mm' }}>
-                <div className="flex flex-col h-full border-2 border-black px-4 pb-2">
-                    <header className="relative flex items-center justify-center mb-1 border-b-2 border-black pb-1 min-h-16 w-full">
-                       {settings.showLogoLeft && settings.logoLeft && (
-                           <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-1/2 -translate-y-1/2 h-16 w-16 object-contain" alt="Logo Esq" />
-                       )}
-                       
-                       <div className="flex flex-col items-center justify-center w-full px-28 text-center">
-                         <div
-                            contentEditable
-                            suppressContentEditableWarning
-                            className="w-full text-center font-black uppercase tracking-tight leading-none mb-0.5 bg-transparent border-none outline-none"
-                            style={{ fontSize: '16pt' }}
-                         >
-                            DIRETORIA DE SAUDE - PMCE
-                         </div>
-                         <div
-                            contentEditable
-                            suppressContentEditableWarning
-                            className="w-full text-center font-bold uppercase leading-none mb-0.5 bg-transparent border-none outline-none"
-                            style={{ fontSize: '12pt' }}
-                         >
-                            ESCALA EXTRA
-                         </div>
-                       </div>
+          {isBSPOrPresidio ? (
+            <div
+              id="roster-pdf-content"
+              className="w-[297mm] min-h-[210mm] bg-white"
+              style={{
+                padding: "0 0 5mm 0",
+                fontFamily: appearance.fontFamily,
+                backgroundColor: "white",
+                display: "flex",
+                flexDirection: "column",
+                position: "relative",
+              }}
+            >
+              <div className="flex flex-col h-auto p-1 pb-4 w-full">
+                <header className="text-center mb-1 flex flex-col justify-center border-b-2 border-black pb-1 relative h-16 flex-shrink-0">
+                  {settings.showLogoLeft && settings.logoLeft && (
+                    <img
+                      src={settings.logoLeft}
+                      crossOrigin="anonymous"
+                      className="absolute left-0 top-1 h-14 w-14 object-contain"
+                      alt="Logo Esq"
+                    />
+                  )}
+                  <div className="mx-0">
+                    <h1
+                      className="font-bold uppercase tracking-wide text-black"
+                      style={{
+                        fontSize: getPrintFontSize(
+                          "title",
+                          appearance.fontSize,
+                        ),
+                      }}
+                    >
+                      {cleanHeaderTitle || settings.orgName}
+                    </h1>
+                    <h2
+                      className="font-black uppercase tracking-tight leading-tight"
+                      style={{
+                        fontSize: getPrintFontSize(
+                          "subtitle",
+                          appearance.fontSize,
+                        ),
+                      }}
+                    >
+                      {roster.title}
+                    </h2>
+                    <div
+                      className="font-bold uppercase"
+                      style={{
+                        fontSize: getPrintFontSize("meta", appearance.fontSize),
+                      }}
+                    >
+                      DO DIA{" "}
+                      {new Date(
+                        roster.startDate + "T12:00:00",
+                      ).toLocaleDateString("pt-BR")}{" "}
+                      A{" "}
+                      {new Date(
+                        roster.endDate + "T12:00:00",
+                      ).toLocaleDateString("pt-BR")}
+                    </div>
+                  </div>
+                  {settings.showLogoRight && settings.logoRight && (
+                    <img
+                      src={settings.logoRight}
+                      crossOrigin="anonymous"
+                      className="absolute right-0 top-1 h-14 w-14 object-contain"
+                      alt="Logo Dir"
+                    />
+                  )}
+                </header>
+                <div className="flex-1 border-2 border-black relative flex flex-col">
+                  <table
+                    className="w-full h-auto border-collapse table-fixed"
+                    style={{
+                      fontSize: getPrintFontSize("cell", appearance.fontSize),
+                    }}
+                  >
+                    <thead>
+                      <tr className="h-auto">
+                        <th
+                          className="border border-black bg-[#cbd5b0] p-1.5 w-64 text-center font-black uppercase"
+                          style={{
+                            fontSize: getPrintFontSize(
+                              "header",
+                              appearance.fontSize,
+                            ),
+                          }}
+                        >
+                          {roster.customHeaders?.[0] || "GRAD/NOME"}
+                        </th>
+                        {dates.map((d) => {
+                          const dStr = d.toISOString().split("T")[0];
+                          const isHoliday = roster.holidays?.includes(dStr);
+                          const isSaturday = d.getDay() === 6;
+                          const isSunday = d.getDay() === 0;
 
-                       {settings.showLogoRight && settings.logoRight && (
-                           <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-1/2 -translate-y-1/2 h-16 w-16 object-contain" alt="Logo Dir" />
-                       )}
-                    </header>
-                    
-                    <div className="mb-4 w-full flex justify-center flex-shrink-0 text-center">
-                         <div
-                            contentEditable
-                            suppressContentEditableWarning
-                            className="w-full text-center font-black uppercase outline-none bg-transparent border-none"
-                            style={{ fontSize: '14pt' }}
-                         >
-                            {roster.title}
-                         </div>
-                    </div>
+                          let bgClass = "bg-[#e4e9d6]";
+                          let headerStyle: React.CSSProperties = {};
+                          if (isHoliday) {
+                            bgClass = "bg-red-200";
+                          } else if (isSaturday) {
+                            headerStyle = { backgroundColor: saturdayColor };
+                          } else if (isSunday) {
+                            headerStyle = { backgroundColor: sundayColor };
+                          }
 
-                    <div className="mb-2 text-left flex-shrink-0" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>
-                        <span className="font-bold uppercase">APRESENTAÇÃO:</span> <span className="leading-normal" style={textTransformStyle}>{roster.observations}</span>
-                    </div>
-                    <div className="relative overflow-hidden">
-                        <table className="w-full border-collapse border-2 border-black table-auto" style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
-                            <thead>
-                              <tr className="bg-[#cbd5b0]">
-                                {HEADERS.map((h, i) => (
-                                   <th key={i} className="border border-black p-1.5 text-center font-bold px-2" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{h}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {extraRosterData.map((item, index) => (
-                                <tr key={`${item.soldier.id}-${index}`}>
-                                  {HEADERS.map((header, colIndex) => (
-                                    <td key={colIndex} className="border border-black p-1.5 text-center">
-                                      {header.includes('ORD') ? (
-                                        <span className="font-bold">{(index + 1).toString().padStart(2, '0')}</span>
-                                      ) : (
-                                        renderExtraCell(header, item, colIndex)
-                                      )}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="mt-2 pt-1">
-                        <div className="text-right mb-2 font-bold" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>{settings.city}, {creationDateFormatted}</div>
-                        <div className="text-center mb-1">
-                             <div className="w-1/3 mx-auto border-b-2 border-black mb-1"></div>
-                             <p className="font-bold uppercase leading-tight" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>{settings.directorName} – {settings.directorRank}</p>
-                             <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorRole}</p>
-                             <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorMatricula}</p> 
-                        </div>
-                    </div>
+                          return (
+                            <th
+                              key={d.toISOString()}
+                              className={`border border-black ${bgClass} p-1 text-center uppercase align-middle whitespace-nowrap`}
+                              style={headerStyle}
+                            >
+                              <div
+                                className="font-black leading-tight whitespace-nowrap"
+                                style={{
+                                  fontSize: getPrintFontSize(
+                                    "tiny",
+                                    appearance.fontSize,
+                                  ),
+                                }}
+                              >
+                                {
+                                  [
+                                    "DOM",
+                                    "SEG",
+                                    "TER",
+                                    "QUA",
+                                    "QUI",
+                                    "SEX",
+                                    "SAB",
+                                  ][d.getDay()]
+                                }
+                              </div>
+                              <div
+                                className="font-bold leading-none whitespace-nowrap"
+                                style={{
+                                  fontSize: getPrintFontSize(
+                                    "tiny",
+                                    appearance.fontSize,
+                                  ),
+                                }}
+                              >
+                                {d.getDate()}
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bspSoldiers.map((soldier) => (
+                        <tr
+                          key={soldier.id}
+                          style={{ height: `${bspRowHeight}px` }}
+                        >
+                          <td
+                            className="border border-black p-1 font-bold uppercase text-center align-middle relative overflow-hidden"
+                            style={{ fontSize: `${bspFontSize * 1.875}pt`, width: "120px", height: `${bspRowHeight}px` }}
+                          >
+                            <div className="flex flex-col items-center justify-center w-full h-full">
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {roster.shifts.find(
+                                  (s) =>
+                                    s.soldierId === soldier.id &&
+                                    s.period === attendancePeriod,
+                                )?.customData?.["bsp_name"] ||
+                                  (isPresidio
+                                    ? `${getAbbreviatedRank(soldier.rank)}${soldier.matricula ? " " + soldier.matricula : ""} ${soldier.name}`
+                                    : `${getAbbreviatedRank(soldier.rank)} ${soldier.name}`)}
+                              </span>
+                              {isPresidio && soldier.phone && (
+                                <span 
+                                  className="text-gray-600 font-normal block mt-0.5"
+                                  style={{ fontSize: `${bspFontSize * 1.625}pt` }}
+                                >
+                                  {soldier.phone}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          {dates.map((d) => {
+                            const dStr = d.toISOString().split("T")[0];
+                            const isHoliday = roster.holidays?.includes(dStr);
+                            const isSaturday = d.getDay() === 6;
+                            const isSunday = d.getDay() === 0;
+
+                            const shift = roster.shifts.find(
+                              (s) =>
+                                s.date === dStr &&
+                                s.soldierId === soldier.id &&
+                                s.period === attendancePeriod,
+                            );
+                            let displayValue = "";
+                            if (shift) {
+                              if (shift.note === "FALTA")
+                                displayValue = "FALTA";
+                              else if (shift.note === "") displayValue = "X";
+                              else displayValue = shift.note;
+                            }
+                            const isFalta = displayValue === "FALTA";
+                            const isHolidayOrFac =
+                              displayValue.includes("FERIADO") ||
+                              displayValue.includes("FACULTATIVO") ||
+                              displayValue.includes("FAC");
+                            const isCustom =
+                              shift &&
+                              shift.note !== "" &&
+                              shift.note !== "FALTA";
+
+                            let cellBg = "";
+                            let cellStyle: React.CSSProperties = {
+                              height: `${bspRowHeight}px`,
+                              color: isFalta ? "#dc2626" : "black",
+                            };
+
+                            if (isHoliday) {
+                              cellBg = "bg-red-50";
+                            } else if (isSaturday) {
+                              cellStyle.backgroundColor = saturdayColor + "1a"; // 10% opacity
+                            } else if (isSunday) {
+                              cellStyle.backgroundColor = sundayColor + "1a"; // 10% opacity
+                            }
+
+                            return (
+                              <td
+                                key={`${soldier.id}-${dStr}`}
+                                className={`border border-black p-0 text-center align-middle font-black ${cellBg} relative`}
+                                style={cellStyle}
+                              >
+                                <div className="flex items-center justify-center w-full h-full overflow-hidden">
+                                  <span
+                                    style={{
+                                      fontSize:
+                                        displayValue === "X"
+                                          ? `${bspFontSize * 2.75}pt`
+                                          : (isFalta || isCustom) &&
+                                              displayValue.length > 1
+                                            ? `${bspFontSize}pt`
+                                            : `${bspFontSize * 1.875}pt`,
+                                      transform:
+                                        bspRotation && displayValue && displayValue !== "X"
+                                          ? "rotate(-45deg)"
+                                          : "none",
+                                      display: "inline-block",
+                                      lineHeight: "1",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {displayValue}
+                                  </span>
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+                <div
+                  className="mt-auto pt-2 relative flex-shrink-0"
+                  style={{
+                    fontSize: getPrintFontSize("meta", appearance.fontSize),
+                  }}
+                >
+                  <div className="flex w-full mb-1 border-2 border-black p-1 bg-white">
+                    <div className="w-1/2 pr-2 border-r-2 border-black">
+                      <div
+                        className="font-bold uppercase block mb-0.5"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "header",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        OBSERVAÇÕES:
+                      </div>
+                      <div className="leading-tight">{roster.observations}</div>
+                    </div>
+                    <div className="w-1/2 pl-2">
+                      <div
+                        className="font-bold uppercase block mb-0.5"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "header",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        ALTERAÇÕES:
+                      </div>
+                      <div className="leading-tight">
+                        {roster.situationText || "Sem alterações."}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right font-bold mt-1">
+                    {settings.city}, {creationDateFormatted}
+                  </div>
+                  <div className="text-center w-1/3 mx-auto mt-1 pb-6 break-inside-avoid">
+                    <div className="w-full border-b-2 border-black mb-1"></div>
+                    <p
+                      className="font-bold uppercase leading-tight"
+                      style={{
+                        fontSize: getPrintFontSize("meta", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorName} – {settings.directorRank}
+                    </p>
+                    <p
+                      className="uppercase leading-tight mt-0.5"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorRole}
+                    </p>
+                    <p
+                      className="uppercase leading-tight mt-0.5"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorMatricula}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : isExtra ? (
+            <div
+              id="roster-pdf-content"
+              className={containerClass}
+              style={{
+                padding: "3mm",
+                fontFamily: appearance.fontFamily,
+                backgroundColor: "white",
+                display: "flex",
+                flexDirection: "column",
+                height: "210mm",
+              }}
+            >
+              <div className="flex flex-col h-full border-2 border-black px-4 pb-2">
+                <header className="relative flex items-center justify-center mb-1 border-b-2 border-black pb-1 min-h-16 w-full">
+                  {settings.showLogoLeft && settings.logoLeft && (
+                    <img
+                      src={settings.logoLeft}
+                      crossOrigin="anonymous"
+                      className="absolute left-0 top-1/2 -translate-y-1/2 h-16 w-16 object-contain"
+                      alt="Logo Esq"
+                    />
+                  )}
+
+                  <div className="flex flex-col items-center justify-center w-full px-28 text-center">
+                    <div
+                      contentEditable
+                      suppressContentEditableWarning
+                      className="w-full text-center font-black uppercase tracking-tight leading-none mb-0.5 bg-transparent border-none outline-none"
+                      style={{ fontSize: "16pt" }}
+                    >
+                      DIRETORIA DE SAUDE - PMCE
+                    </div>
+                    <div
+                      contentEditable
+                      suppressContentEditableWarning
+                      className="w-full text-center font-bold uppercase leading-none mb-0.5 bg-transparent border-none outline-none"
+                      style={{ fontSize: "12pt" }}
+                    >
+                      ESCALA EXTRA
+                    </div>
+                  </div>
+
+                  {settings.showLogoRight && settings.logoRight && (
+                    <img
+                      src={settings.logoRight}
+                      crossOrigin="anonymous"
+                      className="absolute right-0 top-1/2 -translate-y-1/2 h-16 w-16 object-contain"
+                      alt="Logo Dir"
+                    />
+                  )}
+                </header>
+
+                <div className="mb-4 w-full flex justify-center flex-shrink-0 text-center">
+                  <div
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="w-full text-center font-black uppercase outline-none bg-transparent border-none"
+                    style={{ fontSize: "14pt" }}
+                  >
+                    {roster.title}
+                  </div>
+                </div>
+
+                <div
+                  className="mb-2 text-left flex-shrink-0"
+                  style={{
+                    fontSize: getPrintFontSize("meta", appearance.fontSize),
+                  }}
+                >
+                  <span className="font-bold uppercase">APRESENTAÇÃO:</span>{" "}
+                  <span className="leading-normal" style={textTransformStyle}>
+                    {roster.observations}
+                  </span>
+                </div>
+                <div className="relative overflow-hidden">
+                  <table
+                    className="w-full border-collapse border-2 border-black table-auto"
+                    style={{
+                      fontSize: getPrintFontSize("cell", appearance.fontSize),
+                    }}
+                  >
+                    <thead>
+                      <tr className="bg-[#cbd5b0]">
+                        {HEADERS.map((h, i) => (
+                          <th
+                            key={i}
+                            className="border border-black p-1.5 text-center font-bold px-2"
+                            style={{
+                              fontSize: getPrintFontSize(
+                                "header",
+                                appearance.fontSize,
+                              ),
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {extraRosterData.map((item, index) => (
+                        <tr key={`${item.soldier.id}-${index}`}>
+                          {HEADERS.map((header, colIndex) => (
+                            <td
+                              key={colIndex}
+                              className="border border-black p-1.5 text-center"
+                            >
+                              {header.includes("ORD") ? (
+                                <span className="font-bold">
+                                  {(index + 1).toString().padStart(2, "0")}
+                                </span>
+                              ) : (
+                                renderExtraCell(header, item, colIndex)
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-2 pt-1">
+                  <div
+                    className="text-right mb-2 font-bold"
+                    style={{
+                      fontSize: getPrintFontSize("meta", appearance.fontSize),
+                    }}
+                  >
+                    {settings.city}, {creationDateFormatted}
+                  </div>
+                  <div className="text-center mb-1">
+                    <div className="w-1/3 mx-auto border-b-2 border-black mb-1"></div>
+                    <p
+                      className="font-bold uppercase leading-tight"
+                      style={{
+                        fontSize: getPrintFontSize("meta", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorName} – {settings.directorRank}
+                    </p>
+                    <p
+                      className="uppercase leading-tight mt-0.5"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorRole}
+                    </p>
+                    <p
+                      className="uppercase leading-tight mt-0.5"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorMatricula}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : isGrid ? (
-            <div id="roster-pdf-content" className="w-[297mm] min-h-[210mm] bg-white" style={{ padding: '0 0 5mm 0', fontFamily: appearance.fontFamily, backgroundColor: 'white', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-               <div className="flex flex-col h-auto p-1 pb-4 w-full">
-                  <header className="text-center mb-1 flex flex-col justify-center border-b-2 border-black pb-1 relative h-16 flex-shrink-0">
-                     {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-1 h-14 w-14 object-contain" alt="Logo Esq" />}
-                     <div className="mx-0">
-                       <h1 className="font-bold uppercase tracking-wide text-black" style={{ fontSize: getPrintFontSize('title', appearance.fontSize) }}>
-                         {cleanHeaderTitle || settings.orgName}
-                       </h1>
-                       <h2 className="font-black uppercase tracking-tight leading-tight" style={{ fontSize: getPrintFontSize('subtitle', appearance.fontSize) }}>{roster.title}</h2>
-                       <div className="font-bold uppercase" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>DO DIA {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
-                     </div>
-                     {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-1 h-14 w-14 object-contain" alt="Logo Dir" />}
-                  </header>
-                  <div className="flex-1 border-2 border-black relative flex flex-col">
-                    <table className="w-full h-auto border-collapse table-fixed" style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
-                       <thead>
-                          <tr className="h-auto">
-                             {!hideFirstCol && <th className="border border-black bg-[#cbd5b0] p-1.5 w-36"></th>}
-                             {dates.map(d => {
-                                const dStr = d.toISOString().split('T')[0];
-                                const isHoliday = roster.holidays?.includes(dStr);
-                                const isOptional = roster.optionalHolidays?.includes(dStr);
-                                
-                                let bgClass = 'bg-[#e4e9d6]';
-                                if (isHoliday) bgClass = 'bg-red-100';
-                                if (isOptional) bgClass = 'bg-blue-100';
+            <div
+              id="roster-pdf-content"
+              className="w-[297mm] min-h-[210mm] bg-white"
+              style={{
+                padding: "0 0 5mm 0",
+                fontFamily: appearance.fontFamily,
+                backgroundColor: "white",
+                display: "flex",
+                flexDirection: "column",
+                position: "relative",
+              }}
+            >
+              <div className="flex flex-col h-auto p-1 pb-4 w-full">
+                <header className="text-center mb-1 flex flex-col justify-center border-b-2 border-black pb-1 relative h-16 flex-shrink-0">
+                  {settings.showLogoLeft && settings.logoLeft && (
+                    <img
+                      src={settings.logoLeft}
+                      crossOrigin="anonymous"
+                      className="absolute left-0 top-1 h-14 w-14 object-contain"
+                      alt="Logo Esq"
+                    />
+                  )}
+                  <div className="mx-0">
+                    <h1
+                      className="font-bold uppercase tracking-wide text-black"
+                      style={{
+                        fontSize: getPrintFontSize(
+                          "title",
+                          appearance.fontSize,
+                        ),
+                      }}
+                    >
+                      {cleanHeaderTitle || settings.orgName}
+                    </h1>
+                    <h2
+                      className="font-black uppercase tracking-tight leading-tight"
+                      style={{
+                        fontSize: getPrintFontSize(
+                          "subtitle",
+                          appearance.fontSize,
+                        ),
+                      }}
+                    >
+                      {roster.title}
+                    </h2>
+                    <div
+                      className="font-bold uppercase"
+                      style={{
+                        fontSize: getPrintFontSize("meta", appearance.fontSize),
+                      }}
+                    >
+                      DO DIA{" "}
+                      {new Date(
+                        roster.startDate + "T12:00:00",
+                      ).toLocaleDateString("pt-BR")}{" "}
+                      A{" "}
+                      {new Date(
+                        roster.endDate + "T12:00:00",
+                      ).toLocaleDateString("pt-BR")}
+                    </div>
+                  </div>
+                  {settings.showLogoRight && settings.logoRight && (
+                    <img
+                      src={settings.logoRight}
+                      crossOrigin="anonymous"
+                      className="absolute right-0 top-1 h-14 w-14 object-contain"
+                      alt="Logo Dir"
+                    />
+                  )}
+                </header>
+                <div className="flex-1 border-2 border-black relative flex flex-col">
+                  <table
+                    className="w-full h-auto border-collapse table-fixed"
+                    style={{
+                      fontSize: getPrintFontSize("cell", appearance.fontSize),
+                    }}
+                  >
+                    <thead>
+                      <tr className="h-auto">
+                        {!hideFirstCol && (
+                          <th className="border border-black bg-[#cbd5b0] p-1.5 w-36"></th>
+                        )}
+                        {dates.map((d) => {
+                          const dStr = d.toISOString().split("T")[0];
+                          const isHoliday = roster.holidays?.includes(dStr);
+                          const isOptional =
+                            roster.optionalHolidays?.includes(dStr);
 
-                                return (
-                                   <th key={d.toISOString()} className={`border border-black ${bgClass} p-1.5 text-center uppercase align-middle`}>
-                                      <div className="font-bold leading-tight" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]} {d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
-                                      {isHoliday && <div className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-1 rounded shadow-sm leading-none inline-block" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>FERIADO</div>}
-                                      {isOptional && <div className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-1 rounded shadow-sm leading-none inline-block" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>FACULTATIVO</div>}
-                                   </th>
-                                );
-                             })}
-                          </tr>
-                       </thead>
-                       <tbody>
-                          {(roster.sections || [])
-                             .filter(sec => sec.title.trim().toUpperCase() !== 'NOVO BLOCO')
-                             .flatMap(sec => sec.rows
-                               .filter(row => row.label.trim().toUpperCase() !== 'NOVO BLOCO')
-                               .map(row => ({ row, sec }))
-                             ).map(({ row, sec }) => (
-                             <tr key={row.id}>
-                                 {!hideFirstCol && (
-                                   <td className={`border border-black ${row.bgClass || sec.bgClass || 'bg-[#cbd5b0]'} p-1.5 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
-                                     {row.label}
-                                   </td>
-                                 )}
-                                {dates.map(d => {
-                                   const dStr = d.toISOString().split('T')[0];
-                                   const isHoliday = roster.holidays?.includes(dStr);
- 
-                                   const isOptional = roster.optionalHolidays?.includes(dStr);
- 
-                                   const shiftsInCell = roster.shifts
-                                     .filter(s => s.date === dStr && s.period === row.id)
-                                     .sort((a, b) => {
-                                        const sA = allSoldiers.find(s => s.id === a.soldierId);
-                                        const sB = allSoldiers.find(s => s.id === b.soldierId);
-                                        if (!sA || !sB) return 0;
-                                        return getRankWeight(sA.rank) - getRankWeight(sB.rank);
-                                     });
+                          let bgClass = "bg-[#e4e9d6]";
+                          if (isHoliday) bgClass = "bg-red-100";
+                          if (isOptional) bgClass = "bg-blue-100";
 
-                                   let cellBgClass = row.bgClass || '';
-                                   if (shiftsInCell.some(s => s.note === 'ANIV')) {
-                                      cellBgClass = 'bg-green-100';
-                                   } else if (isHoliday) {
-                                      cellBgClass = 'bg-red-50/50';
-                                   } else if (isOptional) {
-                                      cellBgClass = 'bg-blue-50/50';
-                                   } else if (roster.type === 'cat_odo' || roster.type === 'cat_adm') {
-                                      if (d.getDay() === 6) cellBgClass = 'bg-gray-100';
-                                      if (d.getDay() === 0) cellBgClass = 'bg-gray-200';
-                                   }
-
-                                   return (
-                                      <td key={`${row.id}-${dStr}`} className={`border border-black p-1.5 align-middle text-center h-auto ${cellBgClass}`}>
-                                         {(isHoliday || isOptional) && (
-                                            <div className={`flex flex-col space-y-1 justify-center ${shiftsInCell.length > 0 ? 'mb-0.5' : ''}`}>
-                                                <span className={`font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                                   {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
-                                                </span>
+                          return (
+                            <th
+                              key={d.toISOString()}
+                              className={`border border-black ${bgClass} p-1.5 text-center uppercase align-middle whitespace-nowrap`}
+                            >
+                              <div
+                                className="font-bold leading-tight whitespace-nowrap"
+                                style={{
+                                  fontSize: getPrintFontSize(
+                                    "header",
+                                    appearance.fontSize,
+                                  ),
+                                }}
+                              >
+                                {
+                                  [
+                                    "DOM",
+                                    "SEG",
+                                    "TER",
+                                    "QUA",
+                                    "QUI",
+                                    "SEX",
+                                    "SAB",
+                                  ][d.getDay()]
+                                }{" "}
+                                {d.getDate().toString().padStart(2, "0")}/
+                                {String(d.getMonth() + 1).padStart(2, "0")}
+                              </div>
+                              {isHoliday && (
+                                <div
+                                  className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-1 rounded shadow-sm leading-none inline-block"
+                                  style={{
+                                    fontSize: getPrintFontSize(
+                                      "tiny",
+                                      appearance.fontSize,
+                                    ),
+                                  }}
+                                >
+                                  FERIADO
+                                </div>
+                              )}
+                              {isOptional && (
+                                <div
+                                  className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-1 rounded shadow-sm leading-none inline-block"
+                                  style={{
+                                    fontSize: getPrintFontSize(
+                                      "tiny",
+                                      appearance.fontSize,
+                                    ),
+                                  }}
+                                >
+                                  FACULTATIVO
+                                </div>
+                              )}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(roster.sections || [])
+                        .filter(
+                          (sec) =>
+                            sec.title.trim().toUpperCase() !== "NOVO BLOCO",
+                        )
+                        .flatMap((sec) =>
+                          sec.rows
+                            .filter(
+                              (row) =>
+                                row.label.trim().toUpperCase() !== "NOVO BLOCO",
+                            )
+                            .map((row) => ({ row, sec })),
+                        )
+                        .map(({ row, sec }) => (
+                          <tr key={row.id}>
+                            {!hideFirstCol && (
+                              <td
+                                className={`border border-black ${row.bgClass || sec.bgClass || "bg-[#cbd5b0]"} p-1.5 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`}
+                                style={{
+                                  fontSize: getPrintFontSize(
+                                    "cell",
+                                    appearance.fontSize,
+                                  ),
+                                }}
+                              >
+                                {isPresidioMilitarRoster(roster) &&
+                                isCoordRow(row) ? (
+                                  (() => {
+                                    const coordSoldiers =
+                                      getCoordSoldiersForLabel(row.id);
+                                    if (coordSoldiers.length > 0) {
+                                      return (
+                                        <div className="flex flex-col space-y-0.5 text-center">
+                                          {coordSoldiers.map((s) => (
+                                            <div
+                                              key={s.id}
+                                              className="font-bold select-none text-[8.5pt]"
+                                            >
+                                              {getAbbreviatedRank(s.rank)}{" "}
+                                              {s.name}
                                             </div>
-                                         )}
-                                         <div className="flex flex-col space-y-0.5 py-1">
-                                             {shiftsInCell.length > 0 ? shiftsInCell.map((shift, i) => {
-                                               if (shift.isHidden) return null;
-                                               const sdr = allSoldiers.find(s => s.id === shift.soldierId);
-                                               // IMPRESSÃO GRADE (ADM/AST/CUSTOM): Só mostra a nota preenchida na lacuna
-                                               const legend = shift.note || '';
-                                               return sdr ? (
-                                                  <div key={i} className="font-bold leading-tight break-words" style={{ fontSize: getPrintFontSize('name', appearance.fontSize), ...textTransformStyle }}>
-                                                     <div>{getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort} {legend && (
-                                                        <span className={`ml-0.5 font-black ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : 'text-blue-800'}`}>
-                                                          {legend.trim().toUpperCase().startsWith('ANIV') 
-                                                            ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`
-                                                            : legend}
-                                                        </span>
-                                                      )}</div>
-                                                     {!row.hidePhone && !roster.hidePhone && sdr.phone && (
-                                                        <div className="text-gray-600 font-bold leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('phone', appearance.fontSize) }}>{sdr.phone}</div>
-                                                     )}
-                                                  </div>
-                                               ) : null;
-                                            }) : (
-                                               !(isHoliday || isOptional) && <span className="text-gray-300 font-bold" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>***</span>
-                                            )}
-                                         </div>
-                                      </td>
-                                   );
-                                })}
-                             </tr>
-                          ))}
-                       </tbody>
-                    </table>
+                                          ))}
+                                        </div>
+                                      );
+                                    } else {
+                                      return <div>{row.label}</div>;
+                                    }
+                                  })()
+                                ) : (
+                                  <div>{row.label}</div>
+                                )}
+                              </td>
+                            )}
+                            {dates.map((d) => {
+                              const dStr = d.toISOString().split("T")[0];
+                              const isHoliday = roster.holidays?.includes(dStr);
+
+                              const isOptional =
+                                roster.optionalHolidays?.includes(dStr);
+
+                              const shiftsInCell =
+                                isPresidioMilitarRoster(roster) &&
+                                isCoordRow(row)
+                                  ? []
+                                  : roster.shifts
+                                      .filter(
+                                        (s) =>
+                                          s.date === dStr &&
+                                          s.period === row.id,
+                                      )
+                                      .sort((a, b) => {
+                                        const sA = allSoldiers.find(
+                                          (s) => s.id === a.soldierId,
+                                        );
+                                        const sB = allSoldiers.find(
+                                          (s) => s.id === b.soldierId,
+                                        );
+                                        if (!sA || !sB) return 0;
+                                        return (
+                                          getRankWeight(sA.rank) -
+                                          getRankWeight(sB.rank)
+                                        );
+                                      });
+
+                              let cellBgClass = row.bgClass || "";
+                              if (shiftsInCell.some((s) => s.note === "ANIV")) {
+                                cellBgClass = "bg-green-100";
+                              } else if (isHoliday) {
+                                cellBgClass = "bg-red-50/50";
+                              } else if (isOptional) {
+                                cellBgClass = "bg-blue-50/50";
+                              } else if (
+                                roster.type === "cat_odo" ||
+                                roster.type === "cat_adm"
+                              ) {
+                                if (d.getDay() === 6)
+                                  cellBgClass = "bg-gray-100";
+                                if (d.getDay() === 0)
+                                  cellBgClass = "bg-gray-200";
+                              }
+
+                              return (
+                                <td
+                                  key={`${row.id}-${dStr}`}
+                                  className={`border border-black p-1.5 align-middle text-center h-auto ${cellBgClass}`}
+                                >
+                                  {(isHoliday || isOptional) && (
+                                    <div
+                                      className={`flex flex-col space-y-1 justify-center ${shiftsInCell.length > 0 ? "mb-0.5" : ""}`}
+                                    >
+                                      <span
+                                        className={`font-black ${isHoliday ? "text-red-600" : "text-blue-600"} block tracking-widest`}
+                                        style={{
+                                          fontSize: getPrintFontSize(
+                                            "tiny",
+                                            appearance.fontSize,
+                                          ),
+                                        }}
+                                      >
+                                        {isHoliday ? "FERIADO" : "FACULTATIVO"}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex flex-col space-y-0.5 py-1">
+                                    {isPresidioMilitarRoster(roster)
+                                      ? shiftsInCell.filter((s) => !s.isHidden)
+                                          .length > 0
+                                        ? shiftsInCell.map((shift, i) => {
+                                            if (shift.isHidden) return null;
+                                            const sdr = allSoldiers.find(
+                                              (s) => s.id === shift.soldierId,
+                                            );
+                                            const legend = shift.note || "";
+                                            if (!sdr) return null;
+
+                                            if (isCoordRow(row)) {
+                                              // Coordenação/Chefia: Nome em destaque
+                                              return (
+                                                <div
+                                                  key={i}
+                                                  className="font-black text-blue-950 text-center leading-tight break-words select-none"
+                                                  style={{
+                                                    fontSize: getPrintFontSize(
+                                                      "name",
+                                                      appearance.fontSize,
+                                                    ),
+                                                    ...textTransformStyle,
+                                                  }}
+                                                >
+                                                  {getAbbreviatedRank(sdr.rank)}{" "}
+                                                  {sdr.name}
+                                                  {legend && (
+                                                    <span className="text-[7pt] text-blue-700 block font-bold leading-normal">
+                                                      ({legend})
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              );
+                                            } else {
+                                              // Outras linhas: apenas o marcador "X" ou legenda
+                                              return (
+                                                <div
+                                                  key={i}
+                                                  className="font-black text-blue-900 text-center leading-none select-none text-[12pt]"
+                                                >
+                                                  {legend || "X"}
+                                                </div>
+                                              );
+                                            }
+                                          })
+                                        : !(isHoliday || isOptional) && (
+                                            <span
+                                              className="text-gray-300 font-bold"
+                                              style={{
+                                                fontSize: getPrintFontSize(
+                                                  "tiny",
+                                                  appearance.fontSize,
+                                                ),
+                                              }}
+                                            >
+                                              ***
+                                            </span>
+                                          )
+                                      : shiftsInCell.length > 0
+                                        ? shiftsInCell.map((shift, i) => {
+                                            if (shift.isHidden) return null;
+                                            const sdr = allSoldiers.find(
+                                              (s) => s.id === shift.soldierId,
+                                            );
+                                            // IMPRESSÃO GRADE (ADM/AST/CUSTOM): Só mostra a nota preenchida na lacuna
+                                            const legend = shift.note || "";
+                                            return sdr ? (
+                                              <div
+                                                key={i}
+                                                className="font-bold leading-tight break-words"
+                                                style={{
+                                                  fontSize: getPrintFontSize(
+                                                    "name",
+                                                    appearance.fontSize,
+                                                  ),
+                                                  ...textTransformStyle,
+                                                }}
+                                              >
+                                                <div>
+                                                  {getAbbreviatedRank(sdr.rank)}{" "}
+                                                  {sdr.matricula
+                                                    ? sdr.matricula + " "
+                                                    : ""}
+                                                  {sdr.name} {sdr.roleShort}{" "}
+                                                  {legend && (
+                                                    <span
+                                                      className={`ml-0.5 font-black ${legend.trim().toUpperCase().startsWith("ANIV") ? "text-green-800" : "text-blue-800"}`}
+                                                    >
+                                                      {legend
+                                                        .trim()
+                                                        .toUpperCase()
+                                                        .startsWith("ANIV")
+                                                        ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + "T12:00:00") : new Date(shift.date + "T12:00:00")).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })})`
+                                                        : legend}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {!row.hidePhone &&
+                                                  !roster.hidePhone &&
+                                                  sdr.phone && (
+                                                    <div
+                                                      className="text-gray-600 font-bold leading-tight mt-0.5"
+                                                      style={{
+                                                        fontSize:
+                                                          getPrintFontSize(
+                                                            "phone",
+                                                            appearance.fontSize,
+                                                          ),
+                                                      }}
+                                                    >
+                                                      {sdr.phone}
+                                                    </div>
+                                                  )}
+                                              </div>
+                                            ) : null;
+                                          })
+                                        : !(isHoliday || isOptional) && (
+                                            <span
+                                              className="text-gray-300 font-bold"
+                                              style={{
+                                                fontSize: getPrintFontSize(
+                                                  "tiny",
+                                                  appearance.fontSize,
+                                                ),
+                                              }}
+                                            >
+                                              ***
+                                            </span>
+                                          )}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div
+                  className="mt-auto pt-2 relative flex-shrink-0"
+                  style={{
+                    fontSize: getPrintFontSize("meta", appearance.fontSize),
+                  }}
+                >
+                  <div className="flex w-full mb-1 border-2 border-black p-1 bg-white">
+                    <div className="w-1/2 pr-2 border-r-2 border-black">
+                      <div
+                        className="font-bold uppercase block mb-0.5"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "header",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        OBSERVAÇÕES:
+                      </div>
+                      <div className="leading-tight">{roster.observations}</div>
+                    </div>
+                    <div className="w-1/2 pl-2">
+                      <div
+                        className="font-bold uppercase block mb-0.5"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "header",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        ALTERAÇÕES:
+                      </div>
+                      <div className="leading-tight">
+                        {roster.situationText || "Sem alterações."}
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-auto pt-2 relative flex-shrink-0" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>
-                     <div className="flex w-full mb-1 border-2 border-black p-1 bg-white">
-                         <div className="w-1/2 pr-2 border-r-2 border-black">
-                             <div className="font-bold uppercase block mb-0.5" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>OBSERVAÇÕES:</div> 
-                             <div className="leading-tight">{roster.observations}</div>
-                         </div>
-                         <div className="w-1/2 pl-2">
-                             <div className="font-bold uppercase block mb-0.5" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>ALTERAÇÕES:</div>
-                             <div className="leading-tight">{roster.situationText || 'Sem alterações.'}</div>
-                         </div>
-                     </div>
-                     <div className="text-right font-bold mt-1">{settings.city}, {creationDateFormatted}</div>
-                     <div className="text-center w-1/3 mx-auto mt-1 pb-6 break-inside-avoid">
-                        <div className="w-full border-b-2 border-black mb-1"></div>
-                        <p className="font-bold uppercase leading-tight" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>{settings.directorName} – {settings.directorRank}</p>
-                        <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorRole}</p>
-                        <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorMatricula}</p> 
-                     </div>
+                  <div className="text-right font-bold mt-1">
+                    {settings.city}, {creationDateFormatted}
                   </div>
-               </div>
+                  <div className="text-center w-1/3 mx-auto mt-1 pb-6 break-inside-avoid">
+                    <div className="w-full border-b-2 border-black mb-1"></div>
+                    <p
+                      className="font-bold uppercase leading-tight"
+                      style={{
+                        fontSize: getPrintFontSize("meta", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorName} – {settings.directorRank}
+                    </p>
+                    <p
+                      className="uppercase leading-tight mt-0.5"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorRole}
+                    </p>
+                    <p
+                      className="uppercase leading-tight mt-0.5"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.directorMatricula}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
-            <div id="roster-pdf-content" className={`w-[297mm] min-h-[210mm] bg-white`} style={{ padding: '0', fontFamily: appearance.fontFamily, backgroundColor: 'white', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', position: 'relative' }}>
-                <div className={`flex flex-col h-auto w-full ${isPsiOrAst ? 'p-0.5 pb-8' : 'p-1 pb-10'} origin-top-left`}>
-                    <header className={`text-center w-full ${isPsiOrAst ? 'mb-0.5 min-h-8' : 'mb-1 min-h-12'} relative flex flex-col items-center justify-center flex-shrink-0 border-b-2 border-black pb-2`}>
-                       {settings.showLogoLeft && settings.logoLeft && <img src={settings.logoLeft} crossOrigin="anonymous" className="absolute left-0 top-0.5 h-10 w-10 object-contain" alt="Logo Esq" />}
-                       <div className={`${isPsiOrAst ? 'px-0' : 'px-24'} w-full`}>
-                         <h1 className="font-bold uppercase tracking-tight leading-none mb-1 text-black" style={{ fontSize: getPrintFontSize('title', appearance.fontSize) }}>
-                            {cleanHeaderTitle || settings.orgName || settings.institutionName}
-                         </h1>
-                         <h2 className="font-black uppercase leading-none mb-1 text-black" style={{ fontSize: getPrintFontSize('subtitle', appearance.fontSize) }}>{roster.title}</h2>
-                         <div className="font-bold uppercase text-black leading-none mb-2" style={{ fontSize: getPrintFontSize('meta', appearance.fontSize) }}>
-                             PERÍODO: {new Date(roster.startDate + 'T12:00:00').toLocaleDateString('pt-BR')} A {new Date(roster.endDate + 'T12:00:00').toLocaleDateString('pt-BR')}
-                          </div>
-                       </div>
-                       {settings.showLogoRight && settings.logoRight && <img src={settings.logoRight} crossOrigin="anonymous" className="absolute right-0 top-1 h-12 w-12 object-contain" alt="Logo Dir" />}
-                    </header>
-                    {roster.subTitle && (
-                        <div className="bg-[#cbd5b0] border-2 border-black border-b-0 p-1 text-center font-bold uppercase mb-0 flex-shrink-0" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>
-                            {roster.subTitle}
-                        </div>
-                    )}
-                    <div className="border-2 border-black relative flex flex-col px-0 flex-grow w-full">
-                       <table className={`w-full h-auto table-fixed border-collapse`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
-                          <thead>
-                            <tr className="h-auto">
-                               {!hideFirstCol && <th className="border border-black bg-[#cbd5b0] p-1.5 w-24"></th>}
-                               {dates.map((d) => {
-                                  const dStr = d.toISOString().split('T')[0];
-                                  const isAmbulancia = roster.type === 'cat_amb';
-                                  const isHoliday = !isAmbulancia && roster.holidays?.includes(dStr);
-                                  const isOptional = !isAmbulancia && roster.optionalHolidays?.includes(dStr);
-                                  
-                                  let bgClass = 'bg-[#e4e9d6]';
-                                  if (isHoliday) bgClass = 'bg-red-100';
-                                  if (isOptional) bgClass = 'bg-blue-100';
-                                  
-                                  // Cores de fim de semana para Odontologia e Administrativa (Grade)
-                                  if (roster.type === 'cat_odo' || roster.type === 'cat_adm') {
-                                     if (d.getDay() === 6) bgClass = 'bg-gray-100';
-                                     if (d.getDay() === 0) bgClass = 'bg-gray-200';
-                                  }
-                                  
-                                  if (isPsiOrAst) {
-                                     if (d.getDay() === 6) bgClass = 'bg-gray-100';
-                                     if (d.getDay() === 0) bgClass = 'bg-gray-200';
-                                  }
+            <div
+              id="roster-pdf-content"
+              className={`w-[297mm] min-h-[210mm] bg-white`}
+              style={{
+                padding: "0",
+                fontFamily: appearance.fontFamily,
+                backgroundColor: "white",
+                display: "flex",
+                flexDirection: "column",
+                boxSizing: "border-box",
+                position: "relative",
+              }}
+            >
+              <div
+                className={`flex flex-col h-auto w-full ${isPsiOrAst ? "p-0.5 pb-8" : "p-1 pb-10"} origin-top-left`}
+              >
+                <header
+                  className={`text-center w-full ${isPsiOrAst ? "mb-0.5 min-h-8" : "mb-1 min-h-12"} relative flex flex-col items-center justify-center flex-shrink-0 border-b-2 border-black pb-2`}
+                >
+                  {settings.showLogoLeft && settings.logoLeft && (
+                    <img
+                      src={settings.logoLeft}
+                      crossOrigin="anonymous"
+                      className="absolute left-0 top-0.5 h-10 w-10 object-contain"
+                      alt="Logo Esq"
+                    />
+                  )}
+                  <div className={`${isPsiOrAst ? "px-0" : "px-24"} w-full`}>
+                    <h1
+                      className="font-bold uppercase tracking-tight leading-none mb-1 text-black"
+                      style={{
+                        fontSize: getPrintFontSize(
+                          "title",
+                          appearance.fontSize,
+                        ),
+                      }}
+                    >
+                      {cleanHeaderTitle ||
+                        settings.orgName ||
+                        settings.institutionName}
+                    </h1>
+                    <h2
+                      className="font-black uppercase leading-none mb-1 text-black"
+                      style={{
+                        fontSize: getPrintFontSize(
+                          "subtitle",
+                          appearance.fontSize,
+                        ),
+                      }}
+                    >
+                      {roster.title}
+                    </h2>
+                    <div
+                      className="font-bold uppercase text-black leading-none mb-2"
+                      style={{
+                        fontSize: getPrintFontSize("meta", appearance.fontSize),
+                      }}
+                    >
+                      PERÍODO:{" "}
+                      {new Date(
+                        roster.startDate + "T12:00:00",
+                      ).toLocaleDateString("pt-BR")}{" "}
+                      A{" "}
+                      {new Date(
+                        roster.endDate + "T12:00:00",
+                      ).toLocaleDateString("pt-BR")}
+                    </div>
+                  </div>
+                  {settings.showLogoRight && settings.logoRight && (
+                    <img
+                      src={settings.logoRight}
+                      crossOrigin="anonymous"
+                      className="absolute right-0 top-1 h-12 w-12 object-contain"
+                      alt="Logo Dir"
+                    />
+                  )}
+                </header>
+                {roster.subTitle && (
+                  <div
+                    className="bg-[#cbd5b0] border-2 border-black border-b-0 p-1 text-center font-bold uppercase mb-0 flex-shrink-0"
+                    style={{
+                      fontSize: getPrintFontSize("header", appearance.fontSize),
+                    }}
+                  >
+                    {roster.subTitle}
+                  </div>
+                )}
+                <div className="border-2 border-black relative flex flex-col px-0 flex-grow w-full">
+                  <table
+                    className={`w-full h-auto table-fixed border-collapse`}
+                    style={{
+                      fontSize: getPrintFontSize("cell", appearance.fontSize),
+                    }}
+                  >
+                    <thead>
+                      <tr className="h-auto">
+                        {!hideFirstCol && (
+                          <th className="border border-black bg-[#cbd5b0] p-1.5 w-24"></th>
+                        )}
+                        {dates.map((d) => {
+                          const dStr = d.toISOString().split("T")[0];
+                          const isAmbulancia = roster.type === "cat_amb";
+                          const isHoliday =
+                            !isAmbulancia && roster.holidays?.includes(dStr);
+                          const isOptional =
+                            !isAmbulancia &&
+                            roster.optionalHolidays?.includes(dStr);
 
-                                  return (
-                                     <th key={d.toISOString()} className={`${bgClass} border border-black p-1.5 text-center align-middle`} style={{ width: `${100 / dates.length}%` }}>
-                                        <div className="flex flex-col items-center justify-center h-full space-y-0.5">
-                                           <div className="font-black uppercase leading-tight" style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]}</div>
-                                           <div className="font-bold leading-tight" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
-                                           {isHoliday && (
-                                              <div className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none inline-block" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                                 FERIADO
-                                              </div>
-                                           )}
-                                           {isOptional && (
-                                              <div className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none inline-block" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                                 FACULTATIVO
-                                              </div>
-                                           )}
-                                        </div>
-                                     </th>
-                                  );
-                                })}
+                          let bgClass = "bg-[#e4e9d6]";
+                          if (isHoliday) bgClass = "bg-red-100";
+                          if (isOptional) bgClass = "bg-blue-100";
+
+                          // Cores de fim de semana para Odontologia e Administrativa (Grade)
+                          if (
+                            roster.type === "cat_odo" ||
+                            roster.type === "cat_adm"
+                          ) {
+                            if (d.getDay() === 6) bgClass = "bg-gray-100";
+                            if (d.getDay() === 0) bgClass = "bg-gray-200";
+                          }
+
+                          if (isPsiOrAst) {
+                            if (d.getDay() === 6) bgClass = "bg-gray-100";
+                            if (d.getDay() === 0) bgClass = "bg-gray-200";
+                          }
+
+                          return (
+                            <th
+                              key={d.toISOString()}
+                              className={`${bgClass} border border-black p-1.5 text-center align-middle whitespace-nowrap`}
+                              style={{ width: `${100 / dates.length}%` }}
+                            >
+                              <div className="flex flex-col items-center justify-center h-full space-y-0.5">
+                                <div
+                                  className="font-black uppercase leading-tight whitespace-nowrap"
+                                  style={{
+                                    fontSize: getPrintFontSize(
+                                      "header",
+                                      appearance.fontSize,
+                                    ),
+                                  }}
+                                >
+                                  {
+                                    [
+                                      "DOM",
+                                      "SEG",
+                                      "TER",
+                                      "QUA",
+                                      "QUI",
+                                      "SEX",
+                                      "SAB",
+                                    ][d.getDay()]
+                                  }
+                                </div>
+                                <div
+                                  className="font-bold leading-tight"
+                                  style={{
+                                    fontSize: getPrintFontSize(
+                                      "tiny",
+                                      appearance.fontSize,
+                                    ),
+                                  }}
+                                >
+                                  {d.getDate().toString().padStart(2, "0")}/
+                                  {String(d.getMonth() + 1).padStart(2, "0")}
+                                </div>
+                                {isHoliday && (
+                                  <div
+                                    className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none inline-block"
+                                    style={{
+                                      fontSize: getPrintFontSize(
+                                        "tiny",
+                                        appearance.fontSize,
+                                      ),
+                                    }}
+                                  >
+                                    FERIADO
+                                  </div>
+                                )}
+                                {isOptional && (
+                                  <div
+                                    className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none inline-block"
+                                    style={{
+                                      fontSize: getPrintFontSize(
+                                        "tiny",
+                                        appearance.fontSize,
+                                      ),
+                                    }}
+                                  >
+                                    FACULTATIVO
+                                  </div>
+                                )}
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(roster.sections || [])
+                        .filter(
+                          (sec) =>
+                            sec.title.trim().toUpperCase() !== "NOVO BLOCO",
+                        )
+                        .map((sec, sIdx) => (
+                          <React.Fragment key={sIdx}>
+                            <tr
+                              className={`${roster.type === "cat_ast" ? "h-auto" : "h-7"} ${sec.bgClass || "bg-[#cbd5b0]"}`}
+                            >
+                              <td
+                                colSpan={dates.length + (hideFirstCol ? 0 : 1)}
+                                className={`border border-black p-1.5 text-center font-bold uppercase tracking-wide leading-tight align-middle`}
+                                style={{
+                                  fontSize: getPrintFontSize(
+                                    "header",
+                                    appearance.fontSize,
+                                  ),
+                                }}
+                              >
+                                {sec.title}
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody>
-                             {(roster.sections || [])
-                                .filter(sec => sec.title.trim().toUpperCase() !== 'NOVO BLOCO')
-                                .map((sec, sIdx) => (
-                                <React.Fragment key={sIdx}>
-                                   <tr className={`${roster.type === 'cat_ast' ? 'h-auto' : 'h-7'} ${sec.bgClass || 'bg-[#cbd5b0]'}`}>
-                                      <td colSpan={dates.length + (hideFirstCol ? 0 : 1)} className={`border border-black p-1.5 text-center font-bold uppercase tracking-wide leading-tight align-middle`} style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>
-                                         {sec.title}
-                                      </td>
-                                   </tr>
-                                  {sec.rows
-                                    .filter(row => row.label.trim().toUpperCase() !== 'NOVO BLOCO')
-                                    .map((row, rIdx) => (
-                                     <tr key={row.id} className="break-inside-avoid page-break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                                         {!hideFirstCol && (
-                                           <td className={`border border-black ${row.bgClass || sec.bgClass || 'bg-[#cbd5b0]'} p-1.5 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
-                                              {row.label}
-                                           </td>
-                                         )}
-                                         {dates.map((d) => {
-                                            const dStr = d.toISOString().split('T')[0];
-                                            const isHoliday = roster.holidays?.includes(dStr);
-                                            const isOptional = roster.optionalHolidays?.includes(dStr);
-                                            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                                            const isMerged = roster.mergeWeekendRows && isWeekend;
-                                            
-                                            if (isMerged && rIdx > 0) return null;
-
-                                            const cellPeriodId = isMerged ? sec.rows[0].id : row.id;
-                                            const shiftsInCell = roster.shifts
-                                              .filter(s => s.date === dStr && s.period === cellPeriodId)
-                                              .sort((a, b) => {
-                                                 const sA = allSoldiers.find(s => s.id === a.soldierId);
-                                                 const sB = allSoldiers.find(s => s.id === b.soldierId);
-                                                 if (!sA || !sB) return 0;
-                                                 return getRankWeight(sA.rank) - getRankWeight(sB.rank);
-                                              });
-                                            
-                                            let cellBgClass = row.bgClass || sec.bgClass || '';
-                                            if (shiftsInCell.some(s => s.note === 'ANIV')) {
-                                               cellBgClass = 'bg-green-100';
-                                            } else if (isHoliday) {
-                                               cellBgClass = 'bg-red-50/50';
-                                            } else if (isOptional) {
-                                               cellBgClass = 'bg-blue-50/50';
-                                            } else if (isPsiOrAst) {
-                                               if (d.getDay() === 6) cellBgClass = 'bg-gray-100'; // Sábado
-                                               if (d.getDay() === 0) cellBgClass = 'bg-gray-200'; // Domingo
-                                            }
-
+                            {sec.rows
+                              .filter(
+                                (row) =>
+                                  row.label.trim().toUpperCase() !==
+                                  "NOVO BLOCO",
+                              )
+                              .map((row, rIdx) => (
+                                <tr
+                                  key={row.id}
+                                  className="break-inside-avoid page-break-inside-avoid"
+                                  style={{ pageBreakInside: "avoid" }}
+                                >
+                                  {!hideFirstCol && (
+                                    <td
+                                      className={`border border-black ${row.bgClass || sec.bgClass || "bg-[#cbd5b0]"} p-1.5 font-bold uppercase text-center align-middle whitespace-pre-wrap leading-tight`}
+                                      style={{
+                                        fontSize: getPrintFontSize(
+                                          "cell",
+                                          appearance.fontSize,
+                                        ),
+                                      }}
+                                    >
+                                      {isPresidioMilitarRoster(roster) &&
+                                      isCoordRow(row) ? (
+                                        (() => {
+                                          const coordSoldiers =
+                                            getCoordSoldiersForLabel(row.id);
+                                          if (coordSoldiers.length > 0) {
                                             return (
-                                              <td 
-                                                key={`${row.id}-${dStr}`} 
-                                                rowSpan={isMerged ? sec.rows.length : 1}
-                                               className={`border border-black p-1.5 text-center align-middle h-auto ${cellBgClass}`}
-                                              >
-                                                 <div className={`flex flex-col items-center justify-center w-full h-auto leading-tight px-1 py-1`}>
-                                                    {(isHoliday || isOptional) && (
-                                                       <span className={`font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest ${shiftsInCell.length > 0 ? 'mb-0.5' : ''}`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                                          {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
-                                                       </span>
-                                                    )}
-                                                    {shiftsInCell.length > 0 ? shiftsInCell.map((shift, i) => {
-                                                       if (shift.isHidden) return null;
-                                                       const sdr = allSoldiers.find(s => s.id === shift.soldierId);
-                                                       const legend = shift?.note || '';
-                                                       return sdr ? (
-                                                          <div key={i} className={`flex flex-col items-center justify-center w-full leading-tight mb-0.5 last:mb-0.5`}>
-                                                             <div className={`font-bold text-center w-full break-words ${isPsiOrAst ? 'tracking-normal' : 'tracking-tight'} ${isPsiOrAst ? 'leading-tight' : 'leading-tight'}`} style={{ fontSize: getPrintFontSize('name', appearance.fontSize), ...textTransformStyle }}>
-                                                                {getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort}
-                                                             </div>
-                                                              {!row.hidePhone && !roster.hidePhone && sdr.phone && (
-                                                                 <div className={`text-gray-600 font-bold ${isPsiOrAst ? 'mt-0 leading-tight' : 'mt-0.5 leading-tight'}`} style={{ fontSize: getPrintFontSize('phone', appearance.fontSize) }}>{sdr.phone}</div>
-                                                              )}
-                                                             {legend && (
-                                                              <div className={`font-black ${isPsiOrAst ? 'mt-0 leading-tight' : 'mt-0.5 leading-tight'} ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : 'text-blue-800'}`} style={{ fontSize: `calc(${getPrintFontSize('phone', appearance.fontSize)} * 0.9)` }}>
-                                                                   {legend.trim().toUpperCase().startsWith('ANIV') 
-                                                                     ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`
-                                                                     : legend}
-                                                                </div>
-                                                             )}
-                                                          </div>
-                                                       ) : null;
-                                                    }) : (
-                                                       !(isHoliday || isOptional) && <span className="text-gray-300" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>-</span>
-                                                    )}
-                                                 </div>
-                                              </td>
+                                              <div className="flex flex-col space-y-0.5 text-center">
+                                                {coordSoldiers.map((s) => (
+                                                  <div
+                                                    key={s.id}
+                                                    className="font-bold select-none text-[8.5pt]"
+                                                  >
+                                                    {getAbbreviatedRank(
+                                                      s.rank,
+                                                    )}{" "}
+                                                    {s.name}
+                                                  </div>
+                                                ))}
+                                              </div>
                                             );
-                                         })}
-                                      </tr>
-                                   ))}
-                                </React.Fragment>
-                             ))}
-                          </tbody>
-                       </table>
-                    </div>
-                    <div className={`mt-auto ${isPsiOrAst ? 'pt-1' : 'pt-2'} flex flex-col justify-end h-auto flex-shrink-0`}>
-                         <div className="flex w-full mb-0 border-b-2 border-black pb-1">
-                             <div className="w-1/2 pr-1 border-r-2 border-black">
-                                 <div className="leading-tight pb-1" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                    <div className="font-bold uppercase block text-black mb-0" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{roster.observationsTitle || 'OBS'}:</div> 
-                                    <div style={textTransformStyle}>{roster.observations}</div>
-                                 </div>
-                             </div>
-                             <div className="w-1/2 pl-1">
-                                 <div className="leading-tight pb-1" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                    <div className="font-bold uppercase block text-black mb-0" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>ALTERAÇÕES:</div>
-                                    <div style={textTransformStyle}>{roster.situationText || 'Sem alterações.'}</div>
-                                 </div>
-                             </div>
-                         </div>
-                        <div className="mt-1">
-                            <div className="text-right font-bold" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
-                                {settings.city}, {creationDateFormatted}
-                            </div>
-                            <div className={`text-center w-1/2 mx-auto ${isPsiOrAst ? 'mt-0.5 pb-4' : 'mt-1 pb-8'} break-inside-avoid`}>
-                                <div className="w-full border-b-2 border-black mb-1"></div>
-                                <p className="font-bold uppercase leading-tight" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorName} – {settings.directorRank}</p>
-                                <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorRole}</p>
-                                <p className="uppercase leading-tight mt-0.5" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{settings.directorMatricula}</p> 
-                            </div>
-                        </div>
-                    </div>
+                                          } else {
+                                            return <div>{row.label}</div>;
+                                          }
+                                        })()
+                                      ) : (
+                                        <div>{row.label}</div>
+                                      )}
+                                    </td>
+                                  )}
+                                  {dates.map((d) => {
+                                    const dStr = d.toISOString().split("T")[0];
+                                    const isHoliday =
+                                      roster.holidays?.includes(dStr);
+                                    const isOptional =
+                                      roster.optionalHolidays?.includes(dStr);
+                                    const isWeekend =
+                                      d.getDay() === 0 || d.getDay() === 6;
+                                    const isMerged =
+                                      roster.mergeWeekendRows && isWeekend;
+
+                                    if (isMerged && rIdx > 0) return null;
+
+                                    const cellPeriodId = isMerged
+                                      ? sec.rows[0].id
+                                      : row.id;
+                                    const shiftsInCell =
+                                      isPresidioMilitarRoster(roster) &&
+                                      isCoordRow(row)
+                                        ? []
+                                        : roster.shifts
+                                            .filter(
+                                              (s) =>
+                                                s.date === dStr &&
+                                                s.period === cellPeriodId,
+                                            )
+                                      .sort((a, b) => {
+                                        const sA = allSoldiers.find(
+                                          (s) => s.id === a.soldierId,
+                                        );
+                                        const sB = allSoldiers.find(
+                                          (s) => s.id === b.soldierId,
+                                        );
+                                        if (!sA || !sB) return 0;
+                                        return (
+                                          getRankWeight(sA.rank) -
+                                          getRankWeight(sB.rank)
+                                        );
+                                      });
+
+                                    let cellBgClass =
+                                      row.bgClass || sec.bgClass || "";
+                                    if (
+                                      shiftsInCell.some(
+                                        (s) => s.note === "ANIV",
+                                      )
+                                    ) {
+                                      cellBgClass = "bg-green-100";
+                                    } else if (isHoliday) {
+                                      cellBgClass = "bg-red-50/50";
+                                    } else if (isOptional) {
+                                      cellBgClass = "bg-blue-50/50";
+                                    } else if (isPsiOrAst) {
+                                      if (d.getDay() === 6)
+                                        cellBgClass = "bg-gray-100"; // Sábado
+                                      if (d.getDay() === 0)
+                                        cellBgClass = "bg-gray-200"; // Domingo
+                                    }
+
+                                    return (
+                                      <td
+                                        key={`${row.id}-${dStr}`}
+                                        rowSpan={isMerged ? sec.rows.length : 1}
+                                        className={`border border-black p-1.5 text-center align-middle h-auto ${cellBgClass}`}
+                                      >
+                                        <div
+                                          className={`flex flex-col items-center justify-center w-full h-auto leading-tight px-1 py-1`}
+                                        >
+                                          {(isHoliday || isOptional) && (
+                                            <span
+                                              className={`font-black ${isHoliday ? "text-red-600" : "text-blue-600"} block tracking-widest ${shiftsInCell.length > 0 ? "mb-0.5" : ""}`}
+                                              style={{
+                                                fontSize: getPrintFontSize(
+                                                  "tiny",
+                                                  appearance.fontSize,
+                                                ),
+                                              }}
+                                            >
+                                              {isHoliday
+                                                ? "FERIADO"
+                                                : "FACULTATIVO"}
+                                            </span>
+                                          )}
+                                          {isPresidioMilitarRoster(roster)
+                                            ? shiftsInCell.filter(
+                                                (s) => !s.isHidden,
+                                              ).length > 0
+                                              ? shiftsInCell.map((shift, i) => {
+                                                  if (shift.isHidden)
+                                                    return null;
+                                                  const sdr = allSoldiers.find(
+                                                    (s) =>
+                                                      s.id === shift.soldierId,
+                                                  );
+                                                  const legend =
+                                                    shift.note || "";
+                                                  if (!sdr) return null;
+
+                                                  if (isCoordRow(row)) {
+                                                    // Coordenação/Chefia: Nome em destaque
+                                                    return (
+                                                      <div
+                                                        key={i}
+                                                        className="font-black text-blue-950 text-center leading-tight break-words select-none w-full"
+                                                        style={{
+                                                          fontSize:
+                                                            getPrintFontSize(
+                                                              "name",
+                                                              appearance.fontSize,
+                                                            ),
+                                                          ...textTransformStyle,
+                                                        }}
+                                                      >
+                                                        {getAbbreviatedRank(
+                                                          sdr.rank,
+                                                        )}{" "}
+                                                        {sdr.name}
+                                                        {legend && (
+                                                          <span className="text-[7pt] text-blue-700 block font-bold leading-normal">
+                                                            ({legend})
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  } else {
+                                                    // Outras linhas: apenas o marcador "X" ou legenda
+                                                    return (
+                                                      <div
+                                                        key={i}
+                                                        className="font-black text-blue-900 text-center leading-none select-none text-[12pt] w-full"
+                                                      >
+                                                        {legend || "X"}
+                                                      </div>
+                                                    );
+                                                  }
+                                                })
+                                              : !(isHoliday || isOptional) && (
+                                                  <span
+                                                    className="text-gray-300 font-bold"
+                                                    style={{
+                                                      fontSize:
+                                                        getPrintFontSize(
+                                                          "tiny",
+                                                          appearance.fontSize,
+                                                        ),
+                                                    }}
+                                                  >
+                                                    -
+                                                  </span>
+                                                )
+                                            : shiftsInCell.length > 0
+                                              ? shiftsInCell.map((shift, i) => {
+                                                  if (shift.isHidden)
+                                                    return null;
+                                                  const sdr = allSoldiers.find(
+                                                    (s) =>
+                                                      s.id === shift.soldierId,
+                                                  );
+                                                  const legend =
+                                                    shift?.note || "";
+                                                  return sdr ? (
+                                                    <div
+                                                      key={i}
+                                                      className={`flex flex-col items-center justify-center w-full leading-tight mb-0.5 last:mb-0.5`}
+                                                    >
+                                                      <div
+                                                        className={`font-bold text-center w-full break-words ${isPsiOrAst ? "tracking-normal" : "tracking-tight"} ${isPsiOrAst ? "leading-tight" : "leading-tight"}`}
+                                                        style={{
+                                                          fontSize:
+                                                            getPrintFontSize(
+                                                              "name",
+                                                              appearance.fontSize,
+                                                            ),
+                                                          ...textTransformStyle,
+                                                        }}
+                                                      >
+                                                        {getAbbreviatedRank(
+                                                          sdr.rank,
+                                                        )}{" "}
+                                                        {sdr.matricula
+                                                          ? sdr.matricula + " "
+                                                          : ""}
+                                                        {sdr.name}{" "}
+                                                        {sdr.roleShort}
+                                                      </div>
+                                                      {!row.hidePhone &&
+                                                        !roster.hidePhone &&
+                                                        sdr.phone && (
+                                                          <div
+                                                            className={`text-gray-600 font-bold ${isPsiOrAst ? "mt-0 leading-tight" : "mt-0.5 leading-tight"}`}
+                                                            style={{
+                                                              fontSize:
+                                                                getPrintFontSize(
+                                                                  "phone",
+                                                                  appearance.fontSize,
+                                                                ),
+                                                            }}
+                                                          >
+                                                            {sdr.phone}
+                                                          </div>
+                                                        )}
+                                                      {legend && (
+                                                        <div
+                                                          className={`font-black ${isPsiOrAst ? "mt-0 leading-tight" : "mt-0.5 leading-tight"} ${legend.trim().toUpperCase().startsWith("ANIV") ? "text-green-800" : "text-blue-800"}`}
+                                                          style={{
+                                                            fontSize: `calc(${getPrintFontSize("phone", appearance.fontSize)} * 0.9)`,
+                                                          }}
+                                                        >
+                                                          {legend
+                                                            .trim()
+                                                            .toUpperCase()
+                                                            .startsWith("ANIV")
+                                                            ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + "T12:00:00") : new Date(shift.date + "T12:00:00")).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })})`
+                                                            : legend}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  ) : null;
+                                                })
+                                              : !(isHoliday || isOptional) && (
+                                                  <span
+                                                    className="text-gray-300"
+                                                    style={{
+                                                      fontSize:
+                                                        getPrintFontSize(
+                                                          "tiny",
+                                                          appearance.fontSize,
+                                                        ),
+                                                    }}
+                                                  >
+                                                    -
+                                                  </span>
+                                                )}
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                          </React.Fragment>
+                        ))}
+                    </tbody>
+                  </table>
                 </div>
+                <div
+                  className={`mt-auto ${isPsiOrAst ? "pt-1" : "pt-2"} flex flex-col justify-end h-auto flex-shrink-0`}
+                >
+                  <div className="flex w-full mb-0 border-b-2 border-black pb-1">
+                    <div className="w-1/2 pr-1 border-r-2 border-black">
+                      <div
+                        className="leading-tight pb-1"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "tiny",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        <div
+                          className="font-bold uppercase block text-black mb-0"
+                          style={{
+                            fontSize: getPrintFontSize(
+                              "tiny",
+                              appearance.fontSize,
+                            ),
+                          }}
+                        >
+                          {roster.observationsTitle || "OBS"}:
+                        </div>
+                        <div style={textTransformStyle}>
+                          {roster.observations}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-1/2 pl-1">
+                      <div
+                        className="leading-tight pb-1"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "tiny",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        <div
+                          className="font-bold uppercase block text-black mb-0"
+                          style={{
+                            fontSize: getPrintFontSize(
+                              "tiny",
+                              appearance.fontSize,
+                            ),
+                          }}
+                        >
+                          ALTERAÇÕES:
+                        </div>
+                        <div style={textTransformStyle}>
+                          {roster.situationText || "Sem alterações."}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-1">
+                    <div
+                      className="text-right font-bold"
+                      style={{
+                        fontSize: getPrintFontSize("tiny", appearance.fontSize),
+                      }}
+                    >
+                      {settings.city}, {creationDateFormatted}
+                    </div>
+                    <div
+                      className={`text-center w-1/2 mx-auto ${isPsiOrAst ? "mt-0.5 pb-4" : "mt-1 pb-8"} break-inside-avoid`}
+                    >
+                      <div className="w-full border-b-2 border-black mb-1"></div>
+                      <p
+                        className="font-bold uppercase leading-tight"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "tiny",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        {settings.directorName} – {settings.directorRank}
+                      </p>
+                      <p
+                        className="uppercase leading-tight mt-0.5"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "tiny",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        {settings.directorRole}
+                      </p>
+                      <p
+                        className="uppercase leading-tight mt-0.5"
+                        style={{
+                          fontSize: getPrintFontSize(
+                            "tiny",
+                            appearance.fontSize,
+                          ),
+                        }}
+                      >
+                        {settings.directorMatricula}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

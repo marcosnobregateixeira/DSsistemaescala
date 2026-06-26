@@ -34,7 +34,7 @@ function App() {
     // Check initial session from Supabase
     import('./services/supabase').then(({ supabase }) => {
       if (supabase) {
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
+        Promise.resolve(supabase.auth.getSession()).then(async ({ data: { session } }) => {
           if (session?.user) {
              // Sync Supabase session to local store format
              let role: UserRole = 'VISUALIZADOR';
@@ -56,7 +56,7 @@ function App() {
              setUser(user);
              
              // Update role asynchronously if profile exists
-             supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle()
+             Promise.resolve(supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle())
                .then(({ data: profile }) => {
                  if (profile?.role) {
                    const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
@@ -94,7 +94,7 @@ function App() {
              setUser(user);
              
              // Async profile role check
-             supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle()
+             Promise.resolve(supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle())
                .then(({ data: profile }) => {
                  if (profile?.role) {
                     const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };

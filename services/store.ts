@@ -528,10 +528,10 @@ class StoreService {
         this.notify();
 
         // Start sync in background (non-blocking) - this prevents the "floating" login button
-        this.initSupabaseSync().catch(err => console.error("Background sync error:", err));
+        Promise.resolve(this.initSupabaseSync()).catch(err => console.error("Background sync error:", err));
         
         // Get profile in background too
-        supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle()
+        Promise.resolve(supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle())
           .then(({ data: profile }) => {
             if (profile?.role) {
               const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
