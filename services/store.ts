@@ -563,9 +563,45 @@ class StoreService {
 
   async logout(): Promise<void> {
     if (supabase) {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.error("Erro ao deslogar do Supabase:", err);
+      }
     }
+    
+    // Limpar estados locais de sessão e bypass
     sessionStorage.removeItem('current_user');
+    sessionStorage.removeItem('supabase_bypassed');
+    localStorage.removeItem('current_user');
+    
+    // Limpeza profunda de tokens do Supabase de localStorage e sessionStorage
+    try {
+      const keysToClear: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('auth-token') || key === 'current_user')) {
+          keysToClear.push(key);
+        }
+      }
+      keysToClear.forEach(key => localStorage.removeItem(key));
+    } catch (e) {
+      console.error("Erro ao limpar chaves do localStorage:", e);
+    }
+
+    try {
+      const sessionKeysToClear: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('auth-token') || key === 'current_user' || key === 'supabase_bypassed')) {
+          sessionKeysToClear.push(key);
+        }
+      }
+      sessionKeysToClear.forEach(key => sessionStorage.removeItem(key));
+    } catch (e) {
+      console.error("Erro ao limpar chaves do sessionStorage:", e);
+    }
+
     this.notify();
   }
 

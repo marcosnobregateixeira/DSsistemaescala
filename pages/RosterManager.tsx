@@ -145,6 +145,9 @@ export const RosterManager: React.FC = () => {
   } | null>(null);
   const [editingLegendId, setEditingLegendId] = useState<string | null>(null); // Shift ID para edição de legenda
   const [rosterIdToDelete, setRosterIdToDelete] = useState<string | null>(null);
+  const [selectedRosterIds, setSelectedRosterIds] = useState<string[]>([]);
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
 
   const isAdmin = db.getCurrentUser().role === "ADMIN";
 
@@ -200,7 +203,12 @@ export const RosterManager: React.FC = () => {
         new Date(b.creationDate || 0).getTime() -
         new Date(a.creationDate || 0).getTime(),
     );
-    setRosters(allRosters);
+
+    // Remove eventuais duplicatas do banco de dados para evitar erros de chave única no React
+    const uniqueRosters = Array.from(
+      new Map(allRosters.map((r) => [r.id, r])).values(),
+    );
+    setRosters(uniqueRosters);
     setSoldiers(db.getSoldiers());
   };
 
@@ -328,10 +336,11 @@ export const RosterManager: React.FC = () => {
     [settings.rosterCategories, activeTab],
   );
 
-  const filteredRostersByTab = useMemo(
-    () => rosters.filter((r) => r.type === activeTab),
-    [rosters, activeTab],
-  );
+  const filteredRostersByTab = useMemo(() => {
+    const filtered = rosters.filter((r) => r.type === activeTab);
+    // Garantir que não existam IDs duplicados na lista filtrada (prevenção de erros de renderização)
+    return Array.from(new Map(filtered.map((r) => [r.id, r])).values());
+  }, [rosters, activeTab]);
 
   const filteredSoldiersForSearch = useMemo(() => {
     const active = soldiers.filter((s) => s.status === Status.ATIVO);
@@ -753,17 +762,17 @@ export const RosterManager: React.FC = () => {
     if (!newRosterMeta.startDate || !newRosterMeta.endDate)
       return alert("Selecione o período da escala.");
 
+    const catName =
+      settings.rosterCategories
+        .find((c) => c.id === activeTab)
+        ?.name.toUpperCase() || "SERVIÇO";
+
     const isExtra = activeTab === "cat_extra";
     const isAdm = activeTab === "cat_adm";
     const isPsi = activeTab === "cat_psi";
     const isOdo = activeTab === "cat_odo";
     const isAmb = activeTab === "cat_amb";
     const isAst = activeTab === "cat_ast";
-
-    const catName =
-      settings.rosterCategories
-        .find((c) => c.id === activeTab)
-        ?.name.toUpperCase() || "SERVIÇO";
 
     let defaultTitle = `ESCALA DE SERVIÇO – ${catName}`;
 
@@ -772,6 +781,16 @@ export const RosterManager: React.FC = () => {
     if (isPsi) defaultTitle = "ESCALA DE PSICOLOGIA";
     if (isOdo) defaultTitle = "ESCALA DE ODONTOLOGIA";
     if (isAst) defaultTitle = "ESCALA DE SERVIÇO SOCIAL";
+
+    const finalTitle = newRosterMeta.title || defaultTitle;
+
+    if (
+      !window.confirm(
+        `DESEJA REALMENTE CRIAR UMA NOVA ESCALA: "${finalTitle}"?\n\nPeríodo: ${new Date(newRosterMeta.startDate).toLocaleDateString()} a ${new Date(newRosterMeta.endDate).toLocaleDateString()}`,
+      )
+    ) {
+      return;
+    }
 
     const startD = new Date(newRosterMeta.startDate);
 
@@ -822,7 +841,10 @@ export const RosterManager: React.FC = () => {
     }
 
     const newRoster: Roster = {
-      id: Date.now().toString(),
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString() + Math.random().toString(36).substring(2, 9),
       type: activeTab,
       title: newRosterMeta.title || defaultTitle,
       headerTitle: settings.orgName,
@@ -859,8 +881,10 @@ export const RosterManager: React.FC = () => {
     };
     db.saveRoster(newRoster);
 
-    setRosters((prev) => [newRoster, ...prev]);
-    setSelectedRoster(newRoster);
+    // Garante que o estado local de rosters também receba uma cópia independente
+    const rosterToState = JSON.parse(JSON.stringify(newRoster));
+    setRosters((prev) => [rosterToState, ...prev]);
+    setSelectedRoster(rosterToState);
     setIsCreating(false);
 
     if (!isExtra && autoFillOnCreate) {
@@ -906,6 +930,9 @@ export const RosterManager: React.FC = () => {
     try {
       await db.deleteRoster(id);
 
+      // Atualiza o estado local de rosters (CORREÇÃO DE SINCRONIA)
+      setRosters((prev) => prev.filter((r) => r.id !== id));
+
       // Se a escala excluída era a que estava selecionada, limpa a seleção
       if (selectedRoster?.id === id) {
         setSelectedRoster(null);
@@ -921,6 +948,100 @@ export const RosterManager: React.FC = () => {
     }
   };
 
+  const handleRosterChange = (id: string) => {
+    if (!id) {
+      if (
+        selectedRoster &&
+        !window.confirm("DESEJA REALMENTE FECHAR A ESCALA ATUAL?")
+      )
+        return;
+      setSelectedRoster(null);
+      setIsSearchOpen(false);
+      setEditingSectionIdx(null);
+      setEditingRowPos(null);
+      setEditingLegendId(null);
+      setRosterIdToDelete(null);
+      setActiveSearchCell(null);
+      setPaletteOpenPos(null);
+      return;
+    }
+
+    const newRoster = rosters.find((r) => r.id === id);
+    if (!newRoster) return;
+
+    if (
+      selectedRoster &&
+      !window.confirm(
+        `DESEJA TROCAR A ESCALA ATUAL PELA ESCALA: "${newRoster.title}"?`,
+      )
+    ) {
+      return;
+    }
+
+    // Limpa estados auxiliares antes da transição para garantir isolamento total
+    setIsSearchOpen(false);
+    setEditingSectionIdx(null);
+    setEditingRowPos(null);
+    setEditingLegendId(null);
+    setRosterIdToDelete(null);
+    setSelectedRosterIds([]);
+    setActiveSearchCell(null);
+    setPaletteOpenPos(null);
+
+    // Primeiro limpa para garantir que o React perceba a mudança de contexto
+    setSelectedRoster(null);
+    
+    // Usa setTimeout para garantir que o ciclo de renderização anterior termine
+    // Usa uma cópia profunda para isolamento total de dados na memória
+    setTimeout(() => {
+      try {
+        const deepCopy = JSON.parse(JSON.stringify(newRoster));
+        setSelectedRoster(deepCopy);
+      } catch (e) {
+        console.error("Erro ao realizar cópia da escala:", e);
+        setSelectedRoster({ ...newRoster });
+      }
+    }, 10);
+  };
+
+  const toggleRosterSelection = (id: string) => {
+    setSelectedRosterIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRosterIds.length === 0) return;
+
+    if (
+      !window.confirm(
+        `DESEJA EXCLUIR PERMANENTEMENTE AS ${selectedRosterIds.length} ESCALAS SELECIONADAS? ESTA AÇÃO NÃO PODE SER DESFEITA.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      for (const id of selectedRosterIds) {
+        await db.deleteRoster(id);
+      }
+
+      setRosters((prev) =>
+        prev.filter((r) => !selectedRosterIds.includes(r.id)),
+      );
+
+      if (selectedRoster && selectedRosterIds.includes(selectedRoster.id)) {
+        setSelectedRoster(null);
+      }
+
+      setSelectedRosterIds([]);
+      setIsBulkMode(false);
+      alert("Escalas excluídas com sucesso!");
+    } catch (error) {
+      console.error("Erro na exclusão em lote:", error);
+      alert("Ocorreu um erro ao tentar excluir algumas escalas.");
+    }
+  };
   const addRow = (sIdx: number) => {
     if (!selectedRoster || !selectedRoster.sections) return;
     const newSections = selectedRoster.sections.map((sec, idx) =>
@@ -1715,17 +1836,100 @@ export const RosterManager: React.FC = () => {
         )}
       </div>
 
+      {/* MODO DE GERENCIAMENTO EM LOTE */}
+      {isAdmin && (
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Icons.ListChecks
+                size={20}
+                className="text-pm-900 dark:text-white"
+              />
+              <h3 className="text-sm font-black text-pm-900 dark:text-white uppercase">
+                Gerenciamento em Lote
+              </h3>
+            </div>
+            <button
+              onClick={() => {
+                setIsBulkMode(!isBulkMode);
+                setSelectedRosterIds([]);
+              }}
+              className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg transition-all ${
+                isBulkMode
+                  ? "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  : "bg-pm-50 text-pm-700 hover:bg-pm-100"
+              }`}
+            >
+              {isBulkMode ? "Cancelar Seleção" : "Selecionar Múltiplas"}
+            </button>
+          </div>
+
+          {isBulkMode && (
+            <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredRostersByTab.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-pointer ${
+                      selectedRosterIds.includes(r.id)
+                        ? "bg-pm-50 border-pm-200 dark:bg-pm-900/20 dark:border-pm-800"
+                        : "bg-gray-50 border-gray-100 dark:bg-slate-700/50 dark:border-slate-600 hover:border-gray-200"
+                    }`}
+                    onClick={() => toggleRosterSelection(r.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedRosterIds.includes(r.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        toggleRosterSelection(r.id);
+                      }}
+                      className="w-4 h-4 text-pm-600 rounded border-gray-300 focus:ring-pm-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black text-pm-900 dark:text-white truncate uppercase">
+                        {r.title}
+                      </p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase">
+                        {new Date(r.startDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {filteredRostersByTab.length === 0 && (
+                <p className="text-center py-4 text-xs font-bold text-gray-400 uppercase">
+                  Nenhuma escala nesta categoria.
+                </p>
+              )}
+
+              <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-slate-700">
+                <button
+                  disabled={selectedRosterIds.length === 0}
+                  onClick={handleBulkDelete}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-black text-[10px] transition-all ${
+                    selectedRosterIds.length > 0
+                      ? "bg-red-600 text-white hover:bg-red-700 shadow-md"
+                      : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  }`}
+                >
+                  <Trash2 size={14} />
+                  <span>EXCLUIR SELECIONADAS ({selectedRosterIds.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
         <div className="flex items-center space-x-3">
           <Scale size={18} className="text-pm-900 dark:text-white" />
           <select
             className="border-gray-200 dark:border-slate-600 rounded-lg text-xs font-black text-pm-900 dark:text-white focus:ring-pm-500 bg-gray-50 dark:bg-slate-700 px-3 py-2 min-w-[280px]"
             value={selectedRoster?.id || ""}
-            onChange={(e) =>
-              setSelectedRoster(
-                rosters.find((r) => r.id === e.target.value) || null,
-              )
-            }
+            onChange={(e) => handleRosterChange(e.target.value)}
           >
             <option value="">
               {selectedRoster
@@ -1888,7 +2092,7 @@ export const RosterManager: React.FC = () => {
           </div>
         </div>
       ) : selectedRoster ? (
-        <>
+        <div key={selectedRoster.id}>
           {/* Modal Search para BSP */}
           {isSearchOpen && isBSPOrPresidio && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
@@ -4645,7 +4849,7 @@ export const RosterManager: React.FC = () => {
               </div>
             </div>
           )}
-        </>
+        </div>
       ) : (
         <div className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-inner">
           <div className="flex items-center justify-center h-full">
