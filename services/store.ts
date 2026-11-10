@@ -1,4 +1,4 @@
-import { Soldier, Roster, AppSettings, User, UserRole, Rank, Role, Status, RosterCategory, ExtraDutyHistory, Cadre, TeamMapping, ColorPalette, Backup } from '../types';
+import { Soldier, Roster, AppSettings, User, Rank, Role, Status, RosterCategory, ExtraDutyHistory, Cadre, TeamMapping, ColorPalette } from '../types';
 import { supabase } from './supabase';
 
 const DEFAULT_PALETTES: ColorPalette[] = [
@@ -175,24 +175,17 @@ const INITIAL_SOLDIERS: Soldier[] = [
 
 class StoreService {
   private listeners: (() => void)[] = [];
-  private isCloudBypassed: boolean = false;
+  private memoryStore: Record<string, any> = {};
+  private isSyncing = false;
+  private realtimeChannel: any = null;
+  private syncInterval: any = null;
   
   constructor() {
-    // Check if cloud was bypassed in this session
-    this.isCloudBypassed = sessionStorage.getItem('supabase_bypassed') === 'true';
-    
-    // Inicialização puramente local
     this.initSupabaseSync();
-    this.checkAndTriggerAutoBackup();
+    this.setupRealtimeAndEvents();
   }
 
   // --- LOCAL STORE LOGIC ---
-
-  private setCloudBypassed() {
-    this.isCloudBypassed = true;
-    sessionStorage.setItem('supabase_bypassed', 'true');
-    console.warn('Supabase: Cloud Sync desativado para esta sessão devido a erros de conexão.');
-  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.push(listener);
@@ -208,97 +201,198 @@ class StoreService {
   private getLocal<T>(key: string): T | null {
     try {
       const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : null;
+      if (data) {
+        const parsed = JSON.parse(data);
+        this.memoryStore[key] = parsed;
+        return parsed;
+      }
     } catch (e) {
-      console.error(`[Store] Error reading ${key} from LocalStorage:`, e);
-      return null;
+      // Ignora falhas pontuais do localStorage e recorre à memória
     }
+    return this.memoryStore[key] !== undefined ? this.memoryStore[key] : null;
   }
 
   private setLocal(key: string, value: any): void {
+    this.memoryStore[key] = value;
     try {
       localStorage.setItem(key, JSON.stringify(value));
-      this.notify();
     } catch (e) {
-      console.error('[Store] LocalStorage error:', e);
-      this.notify();
+      console.warn(`Aviso ao persistir '${key}' no localStorage (mantido em memória):`, e);
     }
+    this.notify();
   }
 
   // --- SUPABASE SYNC LOGIC ---
 
-  public async initSupabaseSync(force: boolean = false): Promise<boolean> {
-    if (!supabase) return false;
-
-    // Retry logic with exponential backoff could be here, but for now we shield with a simple try-catch and status check
-    if (this.isCloudBypassed && !force) return false;
+  async initSupabaseSync() {
+    if (!supabase || this.isSyncing) return;
+    this.isSyncing = true;
 
     try {
-      console.log('Iniciando sincronização blindada com Cloud...');
-      
-      // 1. Session check with fallback
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        if (sessionError) console.error('Silent Sync Session Info:', sessionError);
-        return false;
-      }
+      await Promise.allSettled([
+        this.syncSettings(),
+        this.syncSoldiers(),
+        this.syncRosters(),
+        this.syncExtraDutyHistory()
+      ]);
+    } catch (error) {
+      console.error('Erro na sincronização com Supabase:', error);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
 
-      // 2. Testar conectividade e permissões (RLS)
-      const { error: connectionError } = await supabase.from('app_settings').select('id').limit(1);
-      
-      if (connectionError) {
-        if (connectionError.message.includes('fetch') || connectionError.message.includes('NetworkError') || connectionError.message.includes('Failed to fetch')) {
-          this.setCloudBypassed();
-          console.warn('Supabase: Falha de rede ao conectar.');
-          return false;
+  async syncSettings(): Promise<void> {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('data')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        console.warn('Erro ao sincronizar app_settings:', error.message);
+        return;
+      }
+      if (data && data.length > 0 && data[0].data) {
+        this.setLocal('app_settings', data[0].data);
+      }
+    } catch (e) {
+      console.warn('Falha syncSettings:', e);
+    }
+  }
+
+  async syncSoldiers(): Promise<void> {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('soldiers')
+        .select('id, data, created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Erro ao sincronizar soldiers:', error.message);
+        return;
+      }
+      if (data && data.length > 0) {
+        const byId = new Map<string, Soldier>();
+        for (const row of data) {
+          const s = row.data || row;
+          const sId = s.id || row.id;
+          if (sId && !byId.has(String(sId))) {
+            byId.set(String(sId), s);
+          }
         }
-        // Se for erro de permissão (403/RLS), o usuário pode não ter permissão de select
-        console.error('Supabase Connection/Policy Error:', connectionError);
-        return false;
+        const soldiers = Array.from(byId.values());
+        this.setLocal('soldiers', soldiers);
+      }
+    } catch (e) {
+      console.warn('Falha syncSoldiers:', e);
+    }
+  }
+
+  async syncRosters(): Promise<void> {
+    if (!supabase) return;
+    try {
+      let allRows: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('rosters')
+          .select('id, data, created_at, updated_at')
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) {
+          console.warn('Erro ao sincronizar rosters:', error.message);
+          break;
+        }
+
+        if (!data || data.length === 0) break;
+        allRows.push(...data);
+        if (data.length < pageSize) break;
+        page++;
       }
 
-      // 3. Sincronizar Tabelas (com tratamento de erro individual)
-      
-      // Soldados
-      const { data: soldiersData, error: soldiersError } = await supabase.from('soldiers').select('data');
-      if (soldiersError) {
-        console.error('Erro ao sincronizar militares:', soldiersError);
-      } else if (soldiersData) {
-        this.setLocal('soldiers', soldiersData.map((row: any) => row.data));
+      if (allRows.length > 0) {
+        const byId = new Map<string, Roster>();
+        for (const row of allRows) {
+          const r = row.data || row;
+          const rId = r.id || row.id;
+          if (rId && !byId.has(String(rId))) {
+            byId.set(String(rId), r);
+          }
+        }
+        const rosters = Array.from(byId.values());
+        this.setLocal('rosters', rosters);
       }
+    } catch (e) {
+      console.warn('Falha syncRosters:', e);
+    }
+  }
 
-      // Escalas
-      const { data: rostersData, error: rostersError } = await supabase.from('rosters').select('data');
-      if (rostersError) {
-        console.error('Erro ao sincronizar escalas:', rostersError);
-      } else if (rostersData) {
-        this.setLocal('rosters', rostersData.map((row: any) => row.data));
+  async syncExtraDutyHistory(): Promise<void> {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('extra_duty_history')
+        .select('data')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (error) {
+        console.warn('Erro ao sincronizar extra_duty_history:', error.message);
+        return;
       }
-
-      // Configurações
-      const { data: settingsData, error: settingsError } = await supabase.from('app_settings').select('data').limit(1);
-      if (settingsError) {
-        console.error('Erro ao sincronizar configurações:', settingsError);
-      } else if (settingsData && settingsData.length > 0) {
-        this.setLocal('app_settings', settingsData[0].data);
+      if (data && data.length > 0) {
+        const history = data.map((row: any) => row.data || row);
+        this.setLocal('extra_duty_history', history);
       }
+    } catch (e) {
+      console.warn('Falha syncExtraDutyHistory:', e);
+    }
+  }
 
-      // Histórico
-      const { data: historyData, error: historyError } = await supabase.from('extra_duty_history').select('data');
-      if (historyError) {
-        console.error('Erro ao sincronizar histórico:', historyError);
-      } else if (historyData) {
-        this.setLocal('extra_duty_history', historyData.map((row: any) => row.data));
+  private setupRealtimeAndEvents(): void {
+    if (!supabase) return;
+
+    try {
+      if (!this.realtimeChannel) {
+        this.realtimeChannel = supabase.channel('realtime-store-sync')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'rosters' }, () => {
+            this.syncRosters();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'soldiers' }, () => {
+            this.syncSoldiers();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, () => {
+            this.syncSettings();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'extra_duty_history' }, () => {
+            this.syncExtraDutyHistory();
+          })
+          .subscribe();
       }
+    } catch (e) {
+      console.warn('Realtime subscription error:', e);
+    }
 
-      console.log('Sincronização Cloud finalizada.');
-      this.notify();
-      return true;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => {
+        this.initSupabaseSync();
+      });
+      window.addEventListener('online', () => {
+        this.initSupabaseSync();
+      });
 
-    } catch (error: any) {
-      console.error('Critical Error during sync:', error);
-      return false;
+      if (!this.syncInterval) {
+        this.syncInterval = setInterval(() => {
+          this.initSupabaseSync();
+        }, 15000);
+      }
     }
   }
 
@@ -351,14 +445,10 @@ class StoreService {
 
   async saveSettings(settings: AppSettings): Promise<void> {
     this.setLocal('app_settings', settings);
-    if (supabase && !this.isCloudBypassed) {
-      try {
-        // Delete old settings to keep only one active configuration row
-        await supabase.from('app_settings').delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
-        await supabase.from('app_settings').insert({ data: settings });
-      } catch (err) {
-        console.warn('Erro ao salvar settings na nuvem:', err);
-      }
+    if (supabase) {
+      // Delete old settings to keep only one active configuration row
+      await supabase.from('app_settings').delete().neq('id', '00000000-0000-0000-0000-000000000000'); 
+      await supabase.from('app_settings').insert({ data: settings });
     }
   }
 
@@ -378,18 +468,24 @@ class StoreService {
     
     this.setLocal('soldiers', soldiers);
 
-    if (supabase && !this.isCloudBypassed) {
+    if (supabase) {
       try {
-        const { data } = await supabase.from('soldiers').select('id, data');
-        const existing = data?.find((row: any) => row.data.id === soldier.id);
-        
-        if (existing) {
-          await supabase.from('soldiers').update({ data: soldier, updated_at: new Date() }).eq('id', existing.id);
+        const { data: existing } = await supabase
+          .from('soldiers')
+          .select('id')
+          .filter('data->>id', 'eq', soldier.id);
+
+        if (existing && existing.length > 0) {
+          await supabase.from('soldiers').update({ data: soldier, updated_at: new Date() }).eq('id', existing[0].id);
+          if (existing.length > 1) {
+            const dups = existing.slice(1).map(r => r.id);
+            await supabase.from('soldiers').delete().in('id', dups);
+          }
         } else {
           await supabase.from('soldiers').insert({ data: soldier });
         }
       } catch (err) {
-        console.warn('Erro ao salvar soldado na nuvem:', err);
+        console.error('Erro ao salvar militar no Supabase:', err);
       }
     }
   }
@@ -398,10 +494,17 @@ class StoreService {
     this.setLocal('soldiers', this.getSoldiers().filter(s => s.id !== id));
     
     if (supabase) {
-      const { data } = await supabase.from('soldiers').select('id, data');
-      const existing = data?.find((row: any) => row.data.id === id);
-      if (existing) {
-        await supabase.from('soldiers').delete().eq('id', existing.id);
+      try {
+        const { data: existing } = await supabase
+          .from('soldiers')
+          .select('id')
+          .filter('data->>id', 'eq', id);
+
+        if (existing && existing.length > 0) {
+          await supabase.from('soldiers').delete().in('id', existing.map(r => r.id));
+        }
+      } catch (err) {
+        console.error('Erro ao deletar militar no Supabase:', err);
       }
     }
   }
@@ -417,22 +520,24 @@ class StoreService {
     
     this.setLocal('rosters', rosters);
 
-    if (supabase && !this.isCloudBypassed) {
+    if (supabase) {
       try {
-        // Otimização: Busca apenas o ID interno do Supabase filtrando pelo ID da escala no JSONB
-        const { data: existingData } = await supabase
+        const { data: existing } = await supabase
           .from('rosters')
           .select('id')
-          .eq('data->>id', roster.id)
-          .maybeSingle();
-        
-        if (existingData) {
-          await supabase.from('rosters').update({ data: roster, updated_at: new Date() }).eq('id', existingData.id);
+          .filter('data->>id', 'eq', roster.id);
+
+        if (existing && existing.length > 0) {
+          await supabase.from('rosters').update({ data: roster, updated_at: new Date() }).eq('id', existing[0].id);
+          if (existing.length > 1) {
+            const dups = existing.slice(1).map(r => r.id);
+            await supabase.from('rosters').delete().in('id', dups);
+          }
         } else {
           await supabase.from('rosters').insert({ data: roster });
         }
       } catch (err) {
-        console.warn('Erro ao salvar escala na nuvem:', err);
+        console.error('Erro ao salvar escala no Supabase:', err);
       }
     }
   }
@@ -441,15 +546,17 @@ class StoreService {
     this.setLocal('rosters', this.getRosters().filter(r => r.id !== id));
 
     if (supabase) {
-      // Otimização: Busca apenas o ID interno do Supabase filtrando pelo ID da escala no JSONB
-      const { data: existingData } = await supabase
-        .from('rosters')
-        .select('id')
-        .eq('data->>id', id)
-        .maybeSingle();
+      try {
+        const { data: existing } = await supabase
+          .from('rosters')
+          .select('id')
+          .filter('data->>id', 'eq', id);
 
-      if (existingData) {
-        await supabase.from('rosters').delete().eq('id', existingData.id);
+        if (existing && existing.length > 0) {
+          await supabase.from('rosters').delete().in('id', existing.map(r => r.id));
+        }
+      } catch (err) {
+        console.error('Erro ao deletar escala no Supabase:', err);
       }
     }
   }
@@ -473,9 +580,10 @@ class StoreService {
   // --- AUTHENTICATION LOGIC (SUPABASE) ---
 
   async login(email: string, password: string): Promise<{ user: User | null, error: string | null }> {
-    if (!supabase || this.isCloudBypassed) {
+    if (!supabase) {
       // Fallback para modo offline (apenas para desenvolvimento local sem Supabase)
-      console.warn('Usando autenticação local (Offline Mode).');
+      // Em produção, isso deve ser desabilitado ou removido.
+      console.warn('Supabase não configurado. Usando autenticação local insegura (apenas dev).');
       const mockUser: User = { id: 'local-admin', username: 'Administrador (Offline)', role: 'ADMIN' };
       sessionStorage.setItem('current_user', JSON.stringify(mockUser));
       this.notify();
@@ -490,129 +598,46 @@ class StoreService {
 
       if (error) {
         console.error('Erro de autenticação:', error.message);
-        const msg = error.message || '';
-        if (msg.includes('fetch') || msg.includes('NetworkError') || msg.includes('Failed to fetch')) {
-             this.setCloudBypassed();
-             return { user: null, error: 'Erro de conexão com o servidor. Tente novamente ou use o modo offline.' };
-        }
-        if (msg.includes("Invalid login credentials")) {
+        if (error.message.includes("Invalid login credentials")) {
              return { user: null, error: 'Credenciais inválidas. Se for o primeiro acesso, use "Esqueci a senha" com a Chave Mestra para criar a conta.' };
         }
-        if (msg.includes("Email not confirmed")) {
+        if (error.message.includes("Email not confirmed")) {
              return { user: null, error: 'Email não confirmado. Verifique sua caixa de entrada.' };
         }
-        return { user: null, error: 'Erro de Autenticação: ' + msg };
+        return { user: null, error: 'Erro: ' + error.message };
       }
 
       if (data.user) {
-        let role: UserRole = 'VISUALIZADOR';
-        const userEmail = data.user.email?.toLowerCase() || '';
-        
-        if (userEmail === 'marcos_notigan@hotmail.com' || userEmail === 'admin@pmce.gov.br') {
-           role = 'ADMIN';
-        } else if (userEmail.includes('operador')) {
-           role = 'OPERADOR';
-        }
-        
-        // Final user object
         const user: User = {
           id: data.user.id,
-          username: data.user.email || 'Usuário',
-          role
+          username: data.user.email || 'Administrador',
+          role: 'ADMIN' // Assumimos admin para quem tem a senha correta neste modelo simplificado
         };
-        
-        // Save to session immediately
         sessionStorage.setItem('current_user', JSON.stringify(user));
-        
-        // Update local status
         this.notify();
-
-        // Start sync in background (non-blocking) - this prevents the "floating" login button
-        Promise.resolve(this.initSupabaseSync()).catch(err => console.error("Background sync error:", err));
-        
-        // Get profile in background too
-        Promise.resolve(supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle())
-          .then(({ data: profile }) => {
-            if (profile?.role) {
-              const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
-              sessionStorage.setItem('current_user', JSON.stringify(updatedUser));
-              this.notify();
-            }
-          })
-          .catch(() => {});
-
         return { user, error: null };
       }
       
       return { user: null, error: 'Erro desconhecido ao fazer login.' };
     } catch (err: any) {
-      const message = err.message || '';
-      console.error('Catch Login Error:', err);
-      
-      if (message.includes('fetch') || message.includes('NetworkError') || message.includes('Failed to fetch')) {
-        this.setCloudBypassed();
-        return { 
-          user: null, 
-          error: 'Erro de conexão: Não foi possível alcançar o servidor. Experimente recarregar a página ou usar o modo offline.' 
-        };
-      }
-      
-      return { user: null, error: message || 'Erro de conexão inesperado.' };
+      return { user: null, error: err.message || 'Erro de conexão.' };
     }
   }
 
   async logout(): Promise<void> {
     if (supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch (err) {
-        console.error("Erro ao deslogar do Supabase:", err);
-      }
+      await supabase.auth.signOut();
     }
-    
-    // Limpar estados locais de sessão e bypass
     sessionStorage.removeItem('current_user');
-    sessionStorage.removeItem('supabase_bypassed');
-    localStorage.removeItem('current_user');
-    
-    // Limpeza profunda de tokens do Supabase de localStorage e sessionStorage
-    try {
-      const keysToClear: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('sb-') || key.includes('auth-token') || key === 'current_user')) {
-          keysToClear.push(key);
-        }
-      }
-      keysToClear.forEach(key => localStorage.removeItem(key));
-    } catch (e) {
-      console.error("Erro ao limpar chaves do localStorage:", e);
-    }
-
-    try {
-      const sessionKeysToClear: string[] = [];
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const key = sessionStorage.key(i);
-        if (key && (key.startsWith('sb-') || key.includes('auth-token') || key === 'current_user' || key === 'supabase_bypassed')) {
-          sessionKeysToClear.push(key);
-        }
-      }
-      sessionKeysToClear.forEach(key => sessionStorage.removeItem(key));
-    } catch (e) {
-      console.error("Erro ao limpar chaves do sessionStorage:", e);
-    }
-
     this.notify();
   }
 
-  getCurrentUser(): User | null {
+  getCurrentUser(): User {
     try {
       const data = sessionStorage.getItem('current_user');
-      return data ? JSON.parse(data) : null;
-    } catch (e) {
-      console.error("[Store] Error reading session user:", e);
-      return null;
-    }
+      if (data) return JSON.parse(data);
+    } catch (e) {}
+    return { id: 'admin', username: 'Administrador', role: 'ADMIN' };
   }
   
   // --- MÉTODOS DEPRECATED/REMOVIDOS (Mantidos como stub para evitar quebra de build imediata, mas seguros) ---
@@ -635,7 +660,7 @@ class StoreService {
   }
 
   async resetAdminPassword(email: string, newPassword: string): Promise<void> {
-    if (supabase && !this.isCloudBypassed) {
+    if (supabase) {
         // Tenta criar o usuário (caso não exista)
         const { data, error } = await supabase.auth.signUp({
             email,
@@ -657,67 +682,10 @@ class StoreService {
         if (data.user && !data.session) {
              throw new Error("Usuário criado! Verifique seu email (" + email + ") para confirmar o cadastro antes de logar.");
         }
-    } else {
-        throw new Error("O modo offline não permite redefinição de senha via servidor. Verifique sua conexão.");
     }
   }
 
   // --- BACKUP / RESTORE ---
-
-  getBackups(): Backup[] {
-    return this.getLocal<Backup[]>('backups') || [];
-  }
-
-  async createBackup(type: 'AUTO' | 'MANUAL' = 'MANUAL'): Promise<Backup> {
-    const backup: Backup = {
-      id: crypto.randomUUID(),
-      date: new Date().toISOString(),
-      type,
-      data: {
-        soldiers: this.getSoldiers(),
-        rosters: this.getRosters(),
-        app_settings: this.getSettings(),
-        extra_duty_history: this.getExtraDutyHistory()
-      }
-    };
-
-    // Obter backups atuais da memória local
-    const currentBackupsData = localStorage.getItem('backups');
-    let backups: Backup[] = currentBackupsData ? JSON.parse(currentBackupsData) : [];
-    
-    // Adicionar no início
-    backups.unshift(backup);
-    
-    // Manter apenas os 5 últimos
-    const limitedBackups = backups.slice(0, 5);
-    localStorage.setItem('backups', JSON.stringify(limitedBackups));
-    
-    this.notify();
-    return backup;
-  }
-
-  async deleteBackup(id: string): Promise<void> {
-    const backups = this.getBackups();
-    this.setLocal('backups', backups.filter(b => b.id !== id));
-  }
-
-  private checkAndTriggerAutoBackup() {
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 5 = Friday
-    const hour = now.getHours();
-    
-    // Check if it's Friday (5) and after 18:00
-    if (dayOfWeek === 5 && hour >= 18) {
-      const lastAutoBackupDate = localStorage.getItem('last_auto_backup_date');
-      const todayStr = now.toISOString().split('T')[0];
-      
-      if (lastAutoBackupDate !== todayStr) {
-        console.log('Triggering automatic Friday backup...');
-        this.createBackup('AUTO');
-        localStorage.setItem('last_auto_backup_date', todayStr);
-      }
-    }
-  }
 
   async restoreBackup(data: any): Promise<void> {
     // 1. Restore to LocalStorage
@@ -783,12 +751,13 @@ class StoreService {
             await pushData('app_settings', 'app_settings');
             await pushData('extra_duty_history', 'extra_duty_history');
             
-            console.log("Sistema blindado: Sincronização de backup finalizada com sucesso.");
+            console.log("Backup synced to Supabase successfully.");
 
         } catch (err) {
-            console.error("Backup Sync Shield Error:", err);
-            // Non-blocking notification or console only
-            this.notify();
+            console.error("Error syncing backup to Supabase:", err);
+            // We don't throw here because local restore succeeded.
+            // But we should warn the user.
+            alert("Backup restaurado localmente, mas houve erro ao sincronizar com a nuvem. Verifique sua conexão.");
         }
     }
   }

@@ -1,8 +1,11 @@
-const CACHE_NAME = 'escalas-ds-v3-resilient';
+const CACHE_NAME = 'escalas-ds-v2-hybrid';
 const URLS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
+  './index.tsx',
+  './App.tsx',
+  // Adicione aqui outros arquivos locais cruciais se houver
 ];
 
 // Instalação: Cache dos arquivos estáticos locais essenciais
@@ -11,8 +14,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Cache aberto v3');
-        return cache.addAll(URLS_TO_CACHE).catch(err => console.error('[SW] Falha ao cachear iniciais:', err));
+        console.log('[SW] Cache aberto');
+        return cache.addAll(URLS_TO_CACHE);
       })
   );
 });
@@ -37,13 +40,6 @@ self.addEventListener('activate', (event) => {
 // Interceptação de Requisições
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
-
-  // Não interferir com chamadas do Supabase (Auth/Database) ou APIs externas
-  if (requestUrl.hostname.includes('supabase.co') || 
-      requestUrl.hostname.includes('supabase.com') ||
-      requestUrl.pathname.includes('/api/')) {
-    return;
-  }
 
   // Estratégia para arquivos externos (CDNs: esm.sh, tailwind, etc) e arquivos locais
   // Estratégia: Stale-While-Revalidate

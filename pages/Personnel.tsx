@@ -23,11 +23,12 @@ export const Personnel: React.FC = () => {
   });
 
   const isAdmin = user.role === 'ADMIN';
-  const canEditPersonnel = isAdmin || user.role === 'OPERADOR';
-  const isViewer = user.role === 'VISUALIZADOR';
+  const canEditPersonnel = isAdmin;
+  const isViewer = user.role === 'USER';
 
   useEffect(() => {
     loadData();
+    return db.subscribe(loadData);
   }, []);
 
   const loadData = () => {
@@ -87,10 +88,11 @@ export const Personnel: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    // Removido confirm para compatibilidade com iframe
-    db.deleteSoldier(id);
-    setIsModalOpen(false); // Close modal if deleting from there
-    loadData();
+    if (window.confirm('Tem certeza que deseja excluir este militar e todas as suas informações?')) {
+      db.deleteSoldier(id);
+      setIsModalOpen(false); // Close modal if deleting from there
+      loadData();
+    }
   };
 
   const handleEdit = (soldier: Soldier) => {

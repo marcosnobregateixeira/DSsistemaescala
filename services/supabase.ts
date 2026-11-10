@@ -1,55 +1,29 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Tenta carregar as variáveis de ambiente, com fallbacks e detecção de nomes truncados
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://vbgotlwjxbbixkrnbjym.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANO || 'sb_publishable_k0EF6q3L336BIjaO2gRzCw_00fgJcHa';
+const DEFAULT_SUPABASE_URL = 'https://vbgotlwjxbbixkrnbjym.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_k0EF6q3L336BIjaO2gRzCw_00fgJcHa';
 
-// Função para validar se a URL é válida e aponta para o domínio do Supabase
-const isValidSupabaseUrl = (url: string) => {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:' && (parsed.hostname.includes('supabase.co') || parsed.hostname.includes('supabase.net'));
-  } catch {
-    return false;
-  }
-};
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
 
-const isConfigured = !!(supabaseUrl && supabaseAnonKey && isValidSupabaseUrl(supabaseUrl));
+const isConfigured = Boolean(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  supabaseUrl !== 'YOUR_SUPABASE_URL' && 
+  supabaseAnonKey !== 'YOUR_SUPABASE_ANON_KEY'
+);
 
-if (typeof window !== 'undefined') {
-  console.log('[Supabase] Configured:', isConfigured);
-  if (!isConfigured) {
-    console.log('[Supabase] URL:', supabaseUrl ? 'Set' : 'Missing');
-    console.log('[Supabase] Key:', supabaseAnonKey ? 'Set' : 'Missing');
-  }
+if (!isConfigured) {
+  console.warn('Supabase: Variáveis de ambiente não configuradas ou contêm valores padrão. O modo offline (LocalStorage) será utilizado.');
 }
 
-export const supabase = (() => {
-  if (!isConfigured) {
-    if (typeof window !== 'undefined') {
-        console.warn('Supabase: Utilizando configuração de fallback para garantir funcionamento.');
-    }
-  }
-
-  try {
-    return createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = isConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        storage: sessionStorage,
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: true,
-        flowType: 'pkce'
-      },
-      global: {
-        headers: { 'x-application-name': 'pmce-escalas' }
+        detectSessionInUrl: true
       }
-    });
-  } catch (err) {
-    if (typeof window !== 'undefined') {
-        console.error('Erro crítico na inicialização do Supabase:', err);
-    }
-    return null;
-  }
-})();
-
+    }) 
+  : null;

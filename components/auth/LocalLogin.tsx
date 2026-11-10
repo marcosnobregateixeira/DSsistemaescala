@@ -25,25 +25,14 @@ export const LocalLogin: React.FC = () => {
     setError('');
 
     try {
-      // Adicionando um timeout de 15 segundos para a tentativa de login
-      const loginPromise = db.login(email, password);
-      const timeoutPromise = new Promise<{ user: null, error: string }>((_, reject) => 
-        setTimeout(() => reject(new Error('TIMEOUT')), 15000)
-      );
-
-      const result = await Promise.race([loginPromise, timeoutPromise]) as { user: any, error: string | null };
-      
-      if (result.user) {
+      const { user, error } = await db.login(email, password);
+      if (user) {
         // Sucesso - o redirecionamento ou atualização de estado acontece via db.subscribe no App.tsx
       } else {
-        setError(result.error || 'Credenciais incorretas');
+        setError(error || 'Credenciais incorretas');
       }
-    } catch (err: any) {
-      if (err.message === 'TIMEOUT') {
-        setError('Tempo de conexão esgotado. Verifique sua internet ou tente novamente.');
-      } else {
-        setError('Erro ao verificar credenciais: ' + (err.message || 'Erro desconhecido'));
-      }
+    } catch (err) {
+      setError('Erro ao verificar credenciais');
     } finally {
       setLoading(false);
     }

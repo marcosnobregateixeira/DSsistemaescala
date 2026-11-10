@@ -206,7 +206,7 @@ export interface TeamMapping {
   shiftName: string;
 }
 
-export type UserRole = 'ADMIN' | 'OPERADOR' | 'VISUALIZADOR';
+export type UserRole = 'ADMIN' | 'USER';
 
 export interface Profile {
   id: string;
@@ -221,18 +221,6 @@ export interface User {
   id: string;
   email?: string;
   profile?: Profile;
-  username?: string; 
-  role?: UserRole; 
-}
-
-export interface Backup {
-  id: string;
-  date: string;
-  data: {
-    soldiers: Soldier[];
-    rosters: Roster[];
-    app_settings: AppSettings;
-    extra_duty_history: ExtraDutyHistory[];
-  };
-  type: 'AUTO' | 'MANUAL';
+  username?: string; // Keeping for backward compatibility if needed
+  role?: UserRole; // Keeping for backward compatibility if needed
 }

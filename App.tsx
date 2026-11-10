@@ -10,11 +10,14 @@ import { Settings } from './pages/Settings';
 import { LocalLogin } from './components/auth/LocalLogin';
 import { PublicRosters } from './pages/PublicRosters';
 import { db } from './services/store';
-import { User, UserRole } from './types';
+import { User } from './types';
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [user, setUser] = useState<User | null>(db.getCurrentUser());
+
+  // Check if current path is public
+  const isPublicPath = window.location.pathname === '/public-rosters';
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -34,78 +37,28 @@ function App() {
     // Check initial session from Supabase
     import('./services/supabase').then(({ supabase }) => {
       if (supabase) {
-        Promise.resolve(supabase.auth.getSession()).then(async ({ data: { session } }) => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
           if (session?.user) {
              // Sync Supabase session to local store format
-             let role: UserRole = 'VISUALIZADOR';
-             const email = session.user.email?.toLowerCase() || '';
-             
-             if (email === 'marcos_notigan@hotmail.com') {
-                role = 'ADMIN';
-             } else if (email.includes('operador')) {
-                role = 'OPERADOR';
-             }
-             
              const user: User = {
                 id: session.user.id,
                 username: session.user.email || 'Administrador',
-                role
+                role: session.user.email?.toLowerCase().includes('operador') ? 'USER' : 'ADMIN'
              };
-             
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
-             
-             // Update role asynchronously if profile exists
-             Promise.resolve(supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle())
-               .then(({ data: profile }) => {
-                 if (profile?.role) {
-                   const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
-                   sessionStorage.setItem('current_user', JSON.stringify(updatedUser));
-                   setUser(updatedUser);
-                 }
-               })
-               .catch(() => {});
-             
-             // Forçar sincronização com a nuvem após restaurar sessão
-             db.initSupabaseSync();
           }
-        }).catch(err => {
-          console.error('Supabase getSession Error:', err);
         });
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
           if (session?.user) {
-             let role: UserRole = 'VISUALIZADOR';
-             const email = session.user.email?.toLowerCase() || '';
-             
-             if (email === 'marcos_notigan@hotmail.com') {
-                role = 'ADMIN';
-             } else if (email.includes('operador')) {
-                role = 'OPERADOR';
-             }
-             
              const user: User = {
                 id: session.user.id,
                 username: session.user.email || 'Administrador',
-                role
+                role: session.user.email?.toLowerCase().includes('operador') ? 'USER' : 'ADMIN'
              };
-             
              sessionStorage.setItem('current_user', JSON.stringify(user));
              setUser(user);
-             
-             // Async profile role check
-             Promise.resolve(supabase.from('profiles').select('role').eq('id', session.user.id).maybeSingle())
-               .then(({ data: profile }) => {
-                 if (profile?.role) {
-                    const updatedUser = { ...user, role: profile.role.toUpperCase() as UserRole };
-                    sessionStorage.setItem('current_user', JSON.stringify(updatedUser));
-                    setUser(updatedUser);
-                 }
-               })
-               .catch(() => {});
-             
-             // Sincronizar ao mudar estado de auth (login/refresh)
-             db.initSupabaseSync();
           } else {
              sessionStorage.removeItem('current_user');
              setUser(null);

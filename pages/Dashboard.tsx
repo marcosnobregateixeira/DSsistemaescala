@@ -2,16 +2,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../services/store';
-import { Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar, Scale, Activity, Heart, Stethoscope, Landmark, Settings as SettingsIcon } from 'lucide-react';
+import { Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar } from 'lucide-react';
 import { Rank, Status, Soldier, BankTransaction, Roster, Cadre, ExtraDutyHistory } from '../types';
-
-const ICON_MAP: Record<string, any> = {
-  Users, AlertTriangle, Search, Clock, UserMinus, ShieldCheck, BookOpen, PlusCircle, 
-  MinusCircle, History, X, Save, Trash2, ArrowLeft, TrendingUp, TrendingDown, 
-  Wallet, FileText, Eye, Info, Wand2, BarChart3, Medal, ListOrdered, 
-  CheckCircle2, RotateCw, Briefcase, MapPin, User, Calendar, Scale,
-  Activity, Heart, Stethoscope, Landmark, Settings: SettingsIcon
-};
+import * as Icons from 'lucide-react';
 import { PrintPreview } from '../components/pdf/PrintPreview';
 
 // Helper para ordenação de patentes
@@ -43,8 +36,7 @@ export const Dashboard: React.FC = () => {
   const settings = db.getSettings();
   
   const isAdmin = user.role === 'ADMIN';
-  const isOperator = isAdmin || user.role === 'OPERADOR';
-  const isViewer = user.role === 'VISUALIZADOR';
+  const isOperator = isAdmin || user.role === 'USER';
 
   // --- SYNC WITH FIREBASE ---
   useEffect(() => {
@@ -234,7 +226,8 @@ export const Dashboard: React.FC = () => {
 
   const handleDeleteTransaction = (tId: string) => {
     if (!selectedSoldierForBank) return;
-    // Removido confirm para compatibilidade com iframe
+    if (!confirm("Deseja excluir este registro do histórico?")) return;
+
     const updatedHistory = (selectedSoldierForBank.bankHistory || []).filter(t => t.id !== tId);
     const updatedSoldier = { ...selectedSoldierForBank, bankHistory: updatedHistory };
 
@@ -268,7 +261,8 @@ export const Dashboard: React.FC = () => {
 
   const handleConfirmExtraList = () => {
     if (previewExtraList.length === 0) return;
-    // Removido confirm para compatibilidade com iframe
+    if (!confirm(`Confirma a escala de ${previewExtraList.length} militares? Eles serão movidos para o final da fila.`)) return;
+
     const currentMax = Math.max(...soldiers.map(s => s.orderExtra || 0), 0);
     
     let nextOrder = currentMax + 1;
@@ -301,7 +295,8 @@ export const Dashboard: React.FC = () => {
 
   const handleResetExtraQueue = () => {
     if (!isAdmin) return;
-    // Removido confirm para compatibilidade com iframe
+    if (!confirm("ATENÇÃO: Isso irá reiniciar a ordem de TODOS os militares baseando-se na antiguidade (Posto/Graduação + Nome). Deseja continuar?")) return;
+
     const sortedByRank = [...soldiers].sort((a, b) => {
        const wA = getRankWeight(a.rank);
        const wB = getRankWeight(b.rank);
@@ -469,7 +464,7 @@ export const Dashboard: React.FC = () => {
   };
 
   const DynamicIcon = ({ name, size = 20, className = "" }: { name: string, size?: number, className?: string }) => {
-    const IconComponent = ICON_MAP[name] || FileText;
+    const IconComponent = (Icons as any)[name] || FileText;
     return <IconComponent size={size} className={className} />;
   };
 
