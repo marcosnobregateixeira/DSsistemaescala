@@ -99,10 +99,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, isDarkMode, toggleThem
 
         <nav className="flex-1 py-6 space-y-1">
           <NavItem to="/" icon={LayoutDashboard} label="Painel Principal" />
-          {isOperator && <NavItem to="/rosters" icon={Scale} label="Gerenciar Escalas" />}
+          <NavItem to="/rosters" icon={Scale} label="Gerenciar Escalas" />
           <NavItem to="/personnel" icon={Users} label="Efetivo (Militares)" />
           <NavItem to="/reports" icon={FileText} label="Relatórios" />
-          {isAdmin && <NavItem to="/settings" icon={Settings} label="Configurações" />}
+          <NavItem to="/settings" icon={Settings} label="Configurações" />
         </nav>
 
         <div className="p-4 bg-pm-800/50 dark:bg-slate-900/50 mt-auto border-t border-pm-700 dark:border-slate-800 space-y-3">

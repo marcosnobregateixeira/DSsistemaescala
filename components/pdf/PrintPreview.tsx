@@ -1,5 +1,5 @@
 import html2pdf from 'html2pdf.js';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { Roster, Rank } from '../../types';
 import { db } from '../../services/store';
 import { getHolidayName, getRankWeight, getAbbreviatedRank } from '../../utils';
@@ -15,8 +15,14 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   const allSoldiers = db.getSoldiers();
   const [isGenerating, setIsGenerating] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(0.8); // Zoom inicial
+  const [scale, setScale] = useState(1);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
   
   const isExtra = roster.type === 'cat_extra';
+  const isAutoFit = roster.type === 'cat_odo' || roster.type === 'cat_psi';
+  const isOdo = roster.type === 'cat_odo';
+  const isPsi = roster.type === 'cat_psi';
   
   // Categorias específicas que usam layout vertical (Operational) - Agora inclui novas escalas personalizadas
   const isAmbOrPsi = roster.type === 'cat_amb' || roster.type === 'cat_psi' || roster.type === 'cat_odo' || roster.type === 'cat_ast' || !['cat_extra', 'cat_adm'].includes(roster.type);
@@ -50,6 +56,38 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
   };
 
   const textTransformStyle = { textTransform: getPrintTextTransform(appearance.textCase) as any };
+
+  const getScaledFontSize = (type: 'name' | 'phone' | 'header' | 'title' | 'subtitle' | 'cell' | 'meta' | 'tiny', extraMultiplier = 1) => {
+    const base = getPrintFontSize(type, appearance.fontSize);
+    const factor = (isAutoFit ? scale : 1) * extraMultiplier;
+    if (factor === 1) return base;
+    const match = base.match(/^([\d.]+)([a-z%]+)$/i);
+    if (!match) return base;
+    return `${(parseFloat(match[1]) * factor).toFixed(2)}${match[2]}`;
+  };
+
+  useEffect(() => {
+    if (isAutoFit) {
+      setScale(1);
+    }
+  }, [isAutoFit, roster, appearance.fontSize]);
+
+  useLayoutEffect(() => {
+    if (!isAutoFit) return;
+    const wrapper = wrapperRef.current;
+    const table = tableRef.current;
+    if (!wrapper || !table) return;
+
+    const available = wrapper.clientHeight;
+    const needed = table.offsetHeight || table.scrollHeight;
+    if (available > 0 && needed > available) {
+      const ratio = (available - 6) / needed;
+      const nextScale = Math.max(0.45, Math.min(1, Number((scale * ratio).toFixed(3))));
+      if (nextScale < scale - 0.01) {
+        setScale(nextScale);
+      }
+    }
+  }, [isAutoFit, scale, roster, appearance.fontSize]);
 
   // Ajuste automático ao abrir
   useEffect(() => {
@@ -99,11 +137,29 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
     element.style.width = '297mm'; // Force A4 Landscape width
     element.style.height = '210mm'; // Ensure A4 Landscape height
 
+    // Injeta fix de baseline no documento principal para FontMetrics do html2canvas
+    const fixStyle = document.createElement('style');
+    fixStyle.id = 'html2canvas-metrics-fix';
+    fixStyle.textContent = 'img { display: inline-block !important; }';
+    document.head.appendChild(fixStyle);
+
     const opt = {
       margin: 0, 
       filename: `Escala_${roster.title.replace(/\s+/g, '_')}.pdf`,
       image: { type: 'jpeg' as const, quality: 1 },
-      html2canvas: { scale: 2, useCORS: true, scrollY: 0, letterRendering: true },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        scrollY: 0,
+        onclone: (clonedDoc: Document, clonedEl: HTMLElement) => {
+          const style = clonedDoc.createElement('style');
+          style.textContent = 'img { display: inline-block !important; }';
+          clonedDoc.head.appendChild(style);
+          if (clonedEl?.parentElement) {
+            clonedEl.parentElement.style.transform = 'none';
+          }
+        }
+      },
       jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const },
       pagebreak: { mode: 'avoid' }
     };
@@ -115,6 +171,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
       console.error(e);
     }
     finally { 
+      document.getElementById('html2canvas-metrics-fix')?.remove();
       setIsGenerating(false); 
       if (originalStyle) {
         element.setAttribute('style', originalStyle);
@@ -518,10 +575,10 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                             {roster.subTitle}
                         </div>
                     )}
-                    <div className="border-2 border-black relative flex flex-col px-1 flex-1 overflow-hidden">
-                       <table className={`w-full ${roster.type === 'cat_ast' ? 'h-auto' : 'h-full'} table-fixed border-collapse`} style={{ fontSize: getPrintFontSize('cell', appearance.fontSize) }}>
+                    <div ref={isAutoFit ? wrapperRef : undefined} className="border-2 border-black relative flex flex-col px-1 flex-1 overflow-hidden">
+                       <table ref={isAutoFit ? tableRef : undefined} className={`w-full ${(roster.type === 'cat_ast' || isAutoFit) ? 'h-auto' : 'h-full'} table-fixed border-collapse`} style={{ fontSize: getScaledFontSize('cell') }}>
                           <thead>
-                            <tr className={roster.type === 'cat_ast' ? 'h-auto' : 'h-6'}>
+                            <tr className={(roster.type === 'cat_ast' || isAutoFit) ? 'h-auto' : 'h-6'}>
                                {dates.map((d) => {
                                   const dStr = d.toISOString().split('T')[0];
                                   const isAmbulancia = roster.type === 'cat_amb';
@@ -533,16 +590,16 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                   if (isOptional) bgClass = 'bg-blue-100';
 
                                   return (
-                                     <th key={d.toISOString()} className={`${bgClass} border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : 'p-1'} text-center`} style={{ width: `${100 / dates.length}%` }}>
-                                        <div className={`font-black uppercase ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'}`} style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]}</div>
-                                        <div className={`font-bold ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} mt-0.5`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>{d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
+                                     <th key={d.toISOString()} className={`${bgClass} border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : (isAutoFit ? 'py-1 px-1' : 'p-1')} text-center align-middle`} style={{ width: `${100 / dates.length}%` }}>
+                                        <div className={`font-black uppercase ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'}`} style={{ fontSize: getScaledFontSize('header') }}>{['DOM','SEG','TER','QUA','QUI','SEX','SAB'][d.getDay()]}</div>
+                                        <div className={`font-bold ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} mt-0.5`} style={{ fontSize: getScaledFontSize('tiny') }}>{d.getDate().toString().padStart(2,'0')}/{String(d.getMonth()+1).padStart(2,'0')}</div>
                                         {isHoliday && (
-                                           <div className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                           <div className="mt-0.5 bg-red-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none" style={{ fontSize: getScaledFontSize('tiny') }}>
                                               FERIADO
                                            </div>
                                         )}
                                         {isOptional && (
-                                           <div className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                           <div className="mt-0.5 bg-blue-600 text-white font-black py-0.5 px-0.5 rounded shadow-sm leading-none" style={{ fontSize: getScaledFontSize('tiny') }}>
                                               FACULTATIVO
                                            </div>
                                         )}
@@ -554,9 +611,9 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                           <tbody>
                              {(roster.sections || []).map((sec, sIdx) => (
                                 <React.Fragment key={sIdx}>
-                                   <tr className={`${roster.type === 'cat_ast' ? 'h-auto' : 'h-7'} ${sec.bgClass || 'bg-[#cbd5b0]'}`}>
-                                      <td colSpan={dates.length} className={`border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : 'p-1'} text-center font-bold uppercase tracking-wide ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} align-middle`} style={{ fontSize: getPrintFontSize('header', appearance.fontSize) }}>
-                                         {sec.title}
+                                   <tr className={`${(roster.type === 'cat_ast' || isAutoFit) ? 'h-auto' : 'h-7'} ${sec.bgClass || 'bg-[#cbd5b0]'}`}>
+                                      <td colSpan={dates.length} className={`border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : (isAutoFit ? 'py-1 px-1' : 'p-1')} text-center font-bold uppercase tracking-wide align-middle`} style={{ fontSize: getScaledFontSize('header') }}>
+                                         <span className={`block ${isAutoFit ? 'py-0.5 leading-tight' : (roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight')}`}>{sec.title}</span>
                                       </td>
                                    </tr>
                                   {sec.rows.map((row, rIdx) => (
@@ -593,11 +650,11 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                               <td 
                                                 key={`${row.id}-${dStr}`} 
                                                 rowSpan={isMerged ? sec.rows.length : 1}
-                                                className={`border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : 'p-1'} text-center ${(roster.type === 'cat_odo' || roster.type === 'cat_ast') ? 'align-top' : 'align-middle'} h-auto ${cellBgClass}`}
+                                                className={`border border-black ${roster.type === 'cat_ast' ? 'p-1.5' : (isAutoFit ? 'py-1 px-1' : 'p-1')} text-center ${(roster.type === 'cat_odo' || roster.type === 'cat_ast' || isPsi) ? 'align-top' : 'align-middle'} h-auto ${cellBgClass}`}
                                               >
-                                                 <div className={`flex flex-col items-center ${(roster.type === 'cat_odo' || roster.type === 'cat_ast') ? 'justify-start pt-0.5' : 'justify-center'} w-full ${roster.type === 'cat_ast' ? 'h-auto' : 'h-full'} ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} px-0.5 ${roster.type === 'cat_ast' ? 'py-1' : 'py-0.5'}`}>
+                                                 <div className={`flex flex-col items-center ${(roster.type === 'cat_odo' || roster.type === 'cat_ast' || isPsi) ? 'justify-start pt-0.5' : 'justify-center'} w-full ${(roster.type === 'cat_ast' || isAutoFit) ? 'h-auto' : 'h-full'} ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} px-0.5 ${roster.type === 'cat_ast' ? 'py-1' : 'py-0.5'}`}>
                                                     {(isHoliday || isOptional) && (
-                                                       <span className={`font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest ${shiftsInCell.length > 0 ? 'mb-0.5' : ''}`} style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>
+                                                       <span className={`font-black ${isHoliday ? 'text-red-600' : 'text-blue-600'} block tracking-widest ${shiftsInCell.length > 0 ? 'mb-0.5' : ''}`} style={{ fontSize: getScaledFontSize('tiny') }}>
                                                           {isHoliday ? 'FERIADO' : 'FACULTATIVO'}
                                                        </span>
                                                     )}
@@ -606,15 +663,15 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                                        const sdr = allSoldiers.find(s => s.id === shift.soldierId);
                                                        const legend = shift?.note || '';
                                                        return sdr ? (
-                                                          <div key={i} className={`flex flex-col items-center justify-center w-full ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} ${roster.type === 'cat_ast' ? 'mb-1' : 'mb-0.5'} last:mb-0`}>
-                                                             <div className={`font-bold text-center w-full break-words tracking-tight ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'}`} style={{ fontSize: getPrintFontSize('name', appearance.fontSize), ...textTransformStyle }}>
+                                                          <div key={i} className={`flex flex-col items-center justify-center w-full ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'} ${roster.type === 'cat_ast' ? 'mb-1' : (isAutoFit ? 'mb-0.5' : 'mb-0.5')} last:mb-0`}>
+                                                             <div className={`font-bold text-center w-full break-words tracking-tight ${roster.type === 'cat_ast' ? 'leading-snug' : 'leading-tight'}`} style={{ fontSize: getScaledFontSize('name'), ...textTransformStyle }}>
                                                                 {getAbbreviatedRank(sdr.rank)} {sdr.matricula ? sdr.matricula + ' ' : ''}{sdr.name} {sdr.roleShort}
                                                              </div>
                                                              {!roster.hidePhone && (settings.showPhoneInPrint || sdr.phone) && sdr.phone && (
-                                                                <div className={`text-gray-600 font-bold ${roster.type === 'cat_ast' ? 'mt-0 leading-snug' : 'mt-0.5 leading-tight'}`} style={{ fontSize: getPrintFontSize('phone', appearance.fontSize) }}>{sdr.phone || '-'}</div>
+                                                                <div className={`text-gray-600 font-bold ${roster.type === 'cat_ast' ? 'mt-0 leading-snug' : 'mt-0.5 leading-tight'}`} style={{ fontSize: getScaledFontSize('phone') }}>{sdr.phone || '-'}</div>
                                                              )}
                                                              {legend && (
-                                                                <div className={`font-black ${roster.type === 'cat_ast' ? 'mt-0 leading-snug' : 'mt-0.5 leading-tight'} ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : 'text-blue-800'}`} style={{ fontSize: `calc(${getPrintFontSize('phone', appearance.fontSize)} * 0.9)` }}>
+                                                                <div className={`font-black ${roster.type === 'cat_ast' ? 'mt-0 leading-snug' : 'mt-0.5 leading-tight'} ${legend.trim().toUpperCase().startsWith('ANIV') ? 'text-green-800' : 'text-blue-800'}`} style={{ fontSize: getScaledFontSize('phone', 0.9) }}>
                                                                    {legend.trim().toUpperCase().startsWith('ANIV') 
                                                                      ? `ANIV (${(sdr.birthday ? new Date(sdr.birthday + 'T12:00:00') : new Date(shift.date + 'T12:00:00')).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`
                                                                      : legend}
@@ -623,7 +680,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                                                           </div>
                                                        ) : null;
                                                     }) : (
-                                                       !(isHoliday || isOptional) && <span className="text-gray-300" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>-</span>
+                                                       !(isHoliday || isOptional) && <span className="text-gray-300" style={{ fontSize: getScaledFontSize('tiny') }}>-</span>
                                                     )}
                                                  </div>
                                               </td>
@@ -636,7 +693,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({ roster, onClose }) =
                           </tbody>
                        </table>
                     </div>
-                    <div className="mt-auto pt-2 flex flex-col justify-end h-auto flex-shrink-0">
+                    <div className={`mt-auto ${isAutoFit ? 'pt-1' : 'pt-2'} flex flex-col justify-end h-auto flex-shrink-0`}>
                          <div className="flex w-full mb-0 border-b-2 border-black pb-1">
                              <div className="w-1/2 pr-1 border-r-2 border-black">
                                  <div className="leading-tight pb-1" style={{ fontSize: getPrintFontSize('tiny', appearance.fontSize) }}>

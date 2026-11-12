@@ -127,11 +127,11 @@ function App() {
         } />
 
         <Route path="/settings" element={
-          user?.role === 'ADMIN' ? (
+          user ? (
             <Layout isDarkMode={isDarkMode} toggleTheme={toggleTheme}>
               <Settings />
             </Layout>
-          ) : <Navigate to="/" replace />
+          ) : <Navigate to="/login" replace />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
