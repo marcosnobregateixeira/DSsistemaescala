@@ -359,41 +359,9 @@ class StoreService {
   private setupRealtimeAndEvents(): void {
     if (!supabase) return;
 
-    try {
-      if (!this.realtimeChannel) {
-        this.realtimeChannel = supabase.channel('realtime-store-sync')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'rosters' }, () => {
-            this.syncRosters();
-          })
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'soldiers' }, () => {
-            this.syncSoldiers();
-          })
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, () => {
-            this.syncSettings();
-          })
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'extra_duty_history' }, () => {
-            this.syncExtraDutyHistory();
-          })
-          .subscribe();
-      }
-    } catch (e) {
-      console.warn('Realtime subscription error:', e);
-    }
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('focus', () => {
-        this.initSupabaseSync();
-      });
-      window.addEventListener('online', () => {
-        this.initSupabaseSync();
-      });
-
-      if (!this.syncInterval) {
-        this.syncInterval = setInterval(() => {
-          this.initSupabaseSync();
-        }, 15000);
-      }
-    }
+    // Otimização de tráfego (PostgREST/Realtime):
+    // Removido o polling de 15 segundos e re-syncs excessivos por foco de janela
+    // que causavam consumo massivo de banda e ultrapassavam a cota gratuita.
   }
 
   // --- PUBLIC API ---
